@@ -1,0 +1,45 @@
+# Copy to config/config.yaml (git-ignored) or point COMBO_ARB_CONFIG at this file.
+# Secrets live in .env / environment, NOT here.
+
+mode: paper            # paper | live   (paper simulates fills; live is triple-guarded)
+environment: prod      # demo | prod    (selects the Kalshi API base URL)
+
+pricing:
+  prob_source: mid          # mid | last  — how a leg's marginal probability is estimated
+  thin_book_spread: 0.10    # if (ask-bid) > this, fall back to last_trade for the leg prob
+  correlation_factor: 1.0   # multiplies the product model; <1 shrinks, >1 lifts joint prob
+  settlement_model: binary  # binary (product) | fractional (stub for future last-trade settlement)
+
+fees:
+  taker_rate: 0.07          # Kalshi taker coefficient: fee = ceil(rate*P*(1-P)*qty*100)/100
+  maker_ratio: 0.25         # maker fee ~= 25% of taker
+  min_fee_per_contract: 0.01
+
+thresholds:
+  buffer_abs: 0.01          # absolute $ buffer added on top of fees
+  buffer_pct: 0.005         # OR 0.5% of fair value, whichever is larger
+  min_margin: 0.0           # discard signals whose net margin is below this
+
+risk:
+  capital_per_trade: 100.0  # max $ notional deployed per signal
+  max_contracts_per_trade: 100
+  max_position_per_market: 500   # abs net contracts per single leg/market
+  max_total_exposure: 5000.0     # max aggregate $ notional across open positions
+  max_open_signals: 25
+  kill_switch: false             # if true, no new trades are executed
+
+execution:
+  live_enabled: false       # HARD GUARD. Must be true (+ mode=live + CONFIRM_LIVE_TRADING=YES) to send real orders
+  fill_model: taker_cross   # taker_cross | mid | depth_prob  (paper mode)
+  combo_fill_price: yes_bid # price at which we (as maker) sell the overpriced combo YES
+
+polling:
+  interval_ms: 1000         # scanner poll cadence
+  max_requests_per_sec: 8   # client-side rate limit
+
+persistence:
+  db_path: data/combo_arb.db
+
+settlement_sim:
+  n_scenarios: 2000         # Monte-Carlo draws for paper PnL realization
+  seed: 42

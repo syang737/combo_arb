@@ -1,0 +1,38 @@
+# Secrets — NEVER commit
+.env
+*.pem
+*.key
+*_private_key*
+secrets/
+
+# Databases / data artifacts
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+data/*.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Tooling
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
