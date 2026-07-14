@@ -29,8 +29,29 @@ def _load_cfg(config: Optional[str]) -> AppConfig:
     return AppConfig.load(path)
 
 
+def _require_live_credentials(cfg: AppConfig) -> None:
+    """Fail early (and informatively) when a live data source has no usable creds.
+
+    Without this, a missing key silently produces empty auth headers and an opaque
+    401 from Kalshi. Here we say exactly what was and wasn't loaded.
+    """
+    s = cfg.secrets
+    if not (s.kalshi_api_key_id and s.kalshi_private_key_path):
+        typer.echo("Live source needs Kalshi credentials, but none were loaded:")
+        typer.echo(f"  KALSHI_API_KEY_ID loaded:   {bool(s.kalshi_api_key_id)}")
+        typer.echo(f"  KALSHI_PRIVATE_KEY_PATH:    {s.kalshi_private_key_path or '(unset)'}")
+        typer.echo("Put them in a .env in the repo root (NOT .env.txt) or set the env vars,")
+        typer.echo("then re-run. Auth is required for /communications/rfqs.")
+        raise typer.Exit(code=1)
+    if not Path(s.kalshi_private_key_path).exists():
+        typer.echo(f"Private key file not found: {s.kalshi_private_key_path}")
+        typer.echo("Check KALSHI_PRIVATE_KEY_PATH points to your PKCS#8 .pem file.")
+        raise typer.Exit(code=1)
+
+
 def _make_client(cfg: AppConfig, source: str) -> MarketDataClient:
     if source == "live":
+        _require_live_credentials(cfg)
         from combo_arb.kalshi.client import KalshiClient
         return KalshiClient(cfg)
     return MockKalshiClient(random_walk=True)
