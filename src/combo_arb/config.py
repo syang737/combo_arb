@@ -18,7 +18,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Kalshi REST base URLs.
 API_BASE_URLS = {
-    "prod": "https://api.elections.kalshi.com/trade-api/v2",
+    # Production host per the current Kalshi REST docs.
+    "prod": "https://external-api.kalshi.com/trade-api/v2",
+    # Demo/sandbox host — confirm against your account before relying on it.
     "demo": "https://demo-api.kalshi.co/trade-api/v2",
 }
 

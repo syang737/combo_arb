@@ -134,14 +134,33 @@ class KalshiClient(MarketDataClient):
     def get_orderbook(self, ticker: str) -> dict:
         return self._get(f"/markets/{ticker}/orderbook").get("orderbook", {})
 
-    def get_combo_rfqs(self) -> list[ComboRFQ]:
-        """Best-effort combo/RFQ fetch. Confirm the endpoint for your account."""
-        try:
-            data = self._get("/rfqs")
-        except RuntimeError as exc:
-            log.warning("combo RFQ endpoint unavailable (%s); returning none", exc)
-            return []
-        return [self._parse_rfq(r) for r in data.get("rfqs", []) if self._parse_rfq(r)]
+    def get_combo_rfqs(self, limit: int = 100, max_pages: int = 10) -> list[ComboRFQ]:
+        """Fetch open RFQs from GET /communications/rfqs (cursor-paginated).
+
+        Endpoint + response shape (``rfqs`` list, ``cursor``) confirmed against the
+        Kalshi REST docs. RFQs are returned for all markets; combo (multivariate
+        event) RFQs carry ``mve_collection_ticker`` + ``mve_selected_legs``, which
+        :meth:`_parse_rfq` extracts. Non-combo RFQs (no legs) are skipped.
+        """
+        rfqs: list[ComboRFQ] = []
+        cursor: Optional[str] = None
+        for _ in range(max_pages):
+            params: dict = {"limit": limit}
+            if cursor:
+                params["cursor"] = cursor
+            try:
+                data = self._get("/communications/rfqs", params=params)
+            except RuntimeError as exc:
+                log.warning("RFQ fetch failed (%s); returning %d so far", exc, len(rfqs))
+                break
+            for raw in data.get("rfqs", []):
+                parsed = self._parse_rfq(raw)
+                if parsed is not None:
+                    rfqs.append(parsed)
+            cursor = data.get("cursor")
+            if not cursor:
+                break
+        return rfqs
 
     @staticmethod
     def _parse_rfq(raw: dict) -> Optional[ComboRFQ]:
