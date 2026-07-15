@@ -22,26 +22,30 @@ from combo_arb.pricing.fees import fee as compute_fee
 
 def _fill_price(order: Order, leg_prices: dict[str, LegPrice], cfg: AppConfig) -> float:
     if order.instrument_type == InstrumentType.COMBO:
-        # We sell the overpriced combo YES to the requester at the quoted price.
+        # Combo trades at the quoted combo YES price (we buy or sell it there).
         return order.price
 
     lp = leg_prices.get(order.instrument)
-    model = cfg.execution.fill_model
     if lp is None:
         return order.price
 
-    if model == "mid" and lp.mid is not None:
-        return lp.mid
-    # taker_cross / depth_prob: cross the spread.
-    if order.action == "buy":
-        ref = lp.best_ask if order.side.value == "yes" else lp.best_bid
+    is_yes = order.side.value == "yes"
+    if cfg.execution.fill_model == "mid" and lp.mid is not None:
+        # NO mid = 1 - YES mid.
+        return lp.mid if is_yes else (1.0 - lp.mid)
+
+    # taker_cross / depth_prob: cross the spread on the order's side.
+    #   buy YES -> yes_ask         sell YES -> yes_bid
+    #   buy NO  -> 1 - yes_bid     sell NO  -> 1 - yes_ask
+    if is_yes:
+        ref = lp.best_ask if order.action == "buy" else lp.best_bid
     else:
-        ref = lp.best_bid if order.side.value == "yes" else lp.best_ask
+        if order.action == "buy":
+            ref = (1.0 - lp.best_bid) if lp.best_bid is not None else None
+        else:
+            ref = (1.0 - lp.best_ask) if lp.best_ask is not None else None
     if ref is None:
         ref = lp.mid if lp.mid is not None else order.price
-    # For a NO-side buy the quoted YES ask must be converted to a NO price.
-    if order.side.value == "no" and order.action == "buy" and lp.best_ask is not None:
-        ref = 1.0 - lp.best_ask
     return ref
 
 

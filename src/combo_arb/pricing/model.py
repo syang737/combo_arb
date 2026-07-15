@@ -84,10 +84,10 @@ def combo_implied_by_legs(
 @dataclass
 class PricingResult:
     fair_combo: float
-    fees_estimate: float        # per-contract expected fees (combo sale + leg hedge)
+    fees_estimate: float        # per-contract expected fees (combo trade + leg hedge)
     buffer: float               # safety buffer on top of fees
     margin_threshold: float     # fees_estimate + buffer
-    arbitrage_margin: float     # combo_quote_yes - fair_combo - fees_estimate
+    arbitrage_margin: float     # directional edge net of fees (positive = tradeable)
     flagged: bool               # arbitrage_margin > buffer and > min_margin
 
 
@@ -121,7 +121,13 @@ def price_combo(
     fees_est = estimate_fees_per_contract(rfq.quote_yes, rfq, leg_prices, cfg)
     buffer = max(cfg.thresholds.buffer_abs, cfg.thresholds.buffer_pct * fair)
     margin_threshold = fees_est + buffer
-    arb_margin = rfq.quote_yes - fair - fees_est
+
+    # Directional edge (net of fees). Buy when the combo is quoted BELOW fair;
+    # sell when quoted ABOVE fair.
+    if cfg.strategy.direction == "sell_overpriced":
+        arb_margin = rfq.quote_yes - fair - fees_est
+    else:  # buy_underpriced (default)
+        arb_margin = fair - rfq.quote_yes - fees_est
     flagged = arb_margin > buffer and arb_margin > cfg.thresholds.min_margin
 
     return PricingResult(

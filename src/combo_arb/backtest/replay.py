@@ -162,8 +162,10 @@ def generate_sample_frames(path: str | Path, n: int = 200, seed: int = 7) -> Non
                     "last_trade_price": round(m, 4),
                 }
             fair_ab = mids["A"] * mids["B"]
-            # Quote the AB combo around fair, sometimes overpriced enough to arb.
-            overpricing = rng.choice([0.0, 0.0, 0.04, 0.08, 0.12, -0.04])
+            # Quote the AB combo around fair. Negative = underpriced (buyable);
+            # positive = overpriced (sellable). Mix of both so either direction has
+            # signals to work with in a backtest.
+            overpricing = rng.choice([0.0, 0.0, 0.08, 0.12, -0.08, -0.12])
             quote_ab = round(max(0.01, min(0.99, fair_ab + overpricing)), 3)
             rfqs = [{
                 "rfq_id": f"rfq-ab-{int(ts)}",

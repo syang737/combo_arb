@@ -35,6 +35,14 @@ class Environment(str, Enum):
     DEMO = "demo"
 
 
+class StrategyConfig(BaseModel):
+    # buy_underpriced: flag combos quoted BELOW fair, buy the combo YES, hedge by
+    #   shorting the legs. This is the buy-only trader's direction (default).
+    # sell_overpriced: flag combos quoted ABOVE fair, sell the combo YES (RFQ maker),
+    #   hedge by buying the legs. Requires the ability to sell/quote the combo.
+    direction: str = "buy_underpriced"  # buy_underpriced | sell_overpriced
+
+
 class PricingConfig(BaseModel):
     prob_source: str = "mid"            # mid | last
     thin_book_spread: float = 0.10
@@ -100,6 +108,7 @@ class Secrets(BaseSettings):
 class AppConfig(BaseModel):
     mode: Mode = Mode.PAPER
     environment: Environment = Environment.PROD
+    strategy: StrategyConfig = Field(default_factory=StrategyConfig)
     pricing: PricingConfig = Field(default_factory=PricingConfig)
     fees: FeesConfig = Field(default_factory=FeesConfig)
     thresholds: ThresholdsConfig = Field(default_factory=ThresholdsConfig)

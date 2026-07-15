@@ -4,6 +4,13 @@
 mode: paper            # paper | live   (paper simulates fills; live is triple-guarded)
 environment: prod      # demo | prod    (selects the Kalshi API base URL)
 
+strategy:
+  # buy_underpriced: flag combos quoted BELOW fair -> buy the combo YES, hedge by
+  #   shorting the legs. The buy-only trader's direction (you cannot sell/NO a combo).
+  # sell_overpriced: flag combos quoted ABOVE fair -> sell the combo YES (as an RFQ
+  #   maker), hedge by buying the legs. Requires being able to sell/quote the combo.
+  direction: buy_underpriced   # buy_underpriced | sell_overpriced
+
 pricing:
   prob_source: mid          # mid | last  — how a leg's marginal probability is estimated
   thin_book_spread: 0.10    # if (ask-bid) > this, fall back to last_trade for the leg prob

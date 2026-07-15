@@ -18,7 +18,8 @@ def synthetic_scenario() -> tuple[dict[str, LegPrice], list[ComboRFQ]]:
     """A small, deterministic market.
 
     Legs A/B/C with mids 0.50 / 0.40 / 0.30.
-      * COMBO_AB (legs A,B): fair ~= 0.50*0.40 = 0.20, quoted YES 0.30 -> ARB.
+      * COMBO_AB (legs A,B): fair ~= 0.50*0.40 = 0.20, quoted YES 0.10 -> BUYABLE
+        under the default buy_underpriced direction.
       * COMBO_ABC (legs A,B,C): fair ~= 0.06, quoted YES 0.065 -> no edge after fees.
     """
     legs = {
@@ -31,8 +32,8 @@ def synthetic_scenario() -> tuple[dict[str, LegPrice], list[ComboRFQ]]:
             rfq_id="rfq-ab",
             mve_collection_ticker="COMBO_AB",
             legs=[ComboLeg(leg_ticker="A"), ComboLeg(leg_ticker="B")],
-            quote_yes=0.30,
-            quote_no=0.68,
+            quote_yes=0.10,
+            quote_no=0.88,
             size=20,
         ),
         ComboRFQ(

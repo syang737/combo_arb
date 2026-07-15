@@ -30,9 +30,9 @@ def test_combo_sell_fills_at_quote(cfg, legs):
     assert fills[0].price == pytest.approx(0.30)
 
 
-def test_hedged_trade_positive_expected_pnl(cfg, legs, arb_rfq):
-    """Overpriced combo -> the hedged paper trade should have positive expected PnL."""
-    sig = Scanner(MockKalshiClient(leg_prices=legs, rfqs=[arb_rfq]), cfg).scan()[0]
+def test_hedged_trade_positive_expected_pnl(cfg, legs, underpriced_rfq):
+    """Underpriced combo -> buying it + short-leg hedge has positive expected PnL."""
+    sig = Scanner(MockKalshiClient(leg_prices=legs, rfqs=[underpriced_rfq]), cfg).scan()[0]
     rm = RiskManager(cfg)
     dec = rm.evaluate(sig, legs)
     fills = PaperExecutionEngine(cfg).execute(dec.all_orders, legs)

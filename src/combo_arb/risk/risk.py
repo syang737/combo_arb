@@ -92,17 +92,43 @@ class HedgeModel(Protocol):
         ...
 
 
+def _leg_buy_yes(delta: float, sell_combo: bool) -> bool:
+    """Which side to BUY to hedge leg ``i``.
+
+    Short combo (sell) -> hold long delta: buy YES when delta>0, else NO.
+    Long combo (buy)   -> hold short delta: buy NO  when delta>0, else YES.
+    """
+    return (delta > 0) if sell_combo else (delta < 0)
+
+
+def _leg_entry_price(lp: Optional[LegPrice], buy_yes: bool) -> float:
+    """Taker-cross entry price for buying the YES or NO side of a leg."""
+    if lp is None:
+        return 0.5
+    if buy_yes:
+        return lp.best_ask if lp.best_ask is not None else (lp.mid if lp.mid is not None else 0.5)
+    # Buy NO = cross to the YES bid: NO ask = 1 - yes_bid.
+    if lp.best_bid is not None:
+        return 1.0 - lp.best_bid
+    return (1.0 - lp.mid) if lp.mid is not None else 0.5
+
+
 class DeltaHedgeModel:
-    """Default approximate hedge: short the combo YES, delta-hedge each leg."""
+    """Default approximate hedge. Direction-aware:
+
+    * sell_overpriced -> sell the combo YES, delta-hedge by buying the legs.
+    * buy_underpriced -> buy the combo YES, delta-hedge by shorting the legs.
+    """
 
     def build(
         self, signal: ArbSignal, qty: int, leg_prices: dict[str, LegPrice], cfg: AppConfig
     ) -> tuple[Order, list[Order]]:
+        sell_combo = cfg.strategy.direction == "sell_overpriced"
         combo_order = Order(
             instrument=signal.mve_collection_ticker,
             instrument_type=InstrumentType.COMBO,
             side=Side.YES,
-            action="sell",
+            action="sell" if sell_combo else "buy",
             price=signal.combo_quote_yes,
             qty=qty,
             mode=cfg.mode.value,
@@ -117,17 +143,14 @@ class DeltaHedgeModel:
             hedge_qty = round(qty * abs(d))
             if hedge_qty <= 0:
                 continue
-            lp = leg_prices.get(leg.leg_ticker)
-            buy_yes = d > 0
-            # Taker cross to enter the hedge: pay the ask (YES) side.
-            price = (lp.best_ask if lp and lp.best_ask is not None else (lp.mid if lp else 0.5))
+            buy_yes = _leg_buy_yes(d, sell_combo)
             hedge_orders.append(
                 Order(
                     instrument=leg.leg_ticker,
                     instrument_type=InstrumentType.LEG,
                     side=Side.YES if buy_yes else Side.NO,
                     action="buy",
-                    price=price if buy_yes else (1.0 - price if price is not None else 0.5),
+                    price=_leg_entry_price(leg_prices.get(leg.leg_ticker), buy_yes),
                     qty=hedge_qty,
                     mode=cfg.mode.value,
                     signal_ref=signal.rfq_id,
@@ -137,16 +160,24 @@ class DeltaHedgeModel:
         return combo_order, hedge_orders
 
 
-def per_contract_hedge_cost(
+def per_contract_capital(
     signal: ArbSignal, leg_prices: dict[str, LegPrice], cfg: AppConfig
 ) -> float:
-    """Cash outlay to hedge one combo contract (sum of |delta_i| * leg_price)."""
+    """Cash outlay per combo contract: leg-hedge cost + (combo premium if buying).
+
+    Selling the combo collects premium (not counted as capital deployed); buying it
+    pays the premium, so that is added to the hedge cost.
+    """
+    sell_combo = cfg.strategy.direction == "sell_overpriced"
     deltas = leg_deltas(signal, leg_prices, cfg)
     cost = 0.0
     for ticker, d in deltas.items():
         lp = leg_prices.get(ticker)
-        price = lp.mid if lp and lp.mid is not None else 0.5
-        cost += abs(d) * price
+        p = lp.mid if lp and lp.mid is not None else 0.5
+        buy_yes = _leg_buy_yes(d, sell_combo)
+        cost += abs(d) * (p if buy_yes else (1.0 - p))
+    if not sell_combo:
+        cost += signal.combo_quote_yes
     return cost
 
 
@@ -162,7 +193,7 @@ class RiskManager:
 
     def _size(self, signal: ArbSignal, leg_prices: dict[str, LegPrice]) -> int:
         r = self.cfg.risk
-        cost = max(per_contract_hedge_cost(signal, leg_prices, self.cfg), _EPS)
+        cost = max(per_contract_capital(signal, leg_prices, self.cfg), _EPS)
         qty_by_capital = int(r.capital_per_trade // cost)
         return max(0, min(signal.size, r.max_contracts_per_trade, qty_by_capital))
 
@@ -177,7 +208,7 @@ class RiskManager:
         if qty <= 0:
             return RiskDecision(False, "sized to zero (capital/limits too tight)")
 
-        cost = per_contract_hedge_cost(signal, leg_prices, self.cfg)
+        cost = per_contract_capital(signal, leg_prices, self.cfg)
         added_exposure = qty * cost
         if self.total_exposure + added_exposure > r.max_total_exposure:
             return RiskDecision(False, "max_total_exposure would be exceeded")

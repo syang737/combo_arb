@@ -22,10 +22,22 @@ def legs() -> dict[str, LegPrice]:
 
 
 @pytest.fixture
-def arb_rfq() -> ComboRFQ:
-    """AB combo: fair ~0.20, quoted YES 0.30 -> arbitrage."""
+def underpriced_rfq() -> ComboRFQ:
+    """AB combo: fair ~0.20, quoted YES 0.10 -> BUYABLE (buy_underpriced)."""
     return ComboRFQ(
-        rfq_id="rfq-ab",
+        rfq_id="rfq-ab-under",
+        mve_collection_ticker="COMBO_AB",
+        legs=[ComboLeg(leg_ticker="A"), ComboLeg(leg_ticker="B")],
+        quote_yes=0.10,
+        size=20,
+    )
+
+
+@pytest.fixture
+def overpriced_rfq() -> ComboRFQ:
+    """AB combo: fair ~0.20, quoted YES 0.30 -> SELLABLE (sell_overpriced)."""
+    return ComboRFQ(
+        rfq_id="rfq-ab-over",
         mve_collection_ticker="COMBO_AB",
         legs=[ComboLeg(leg_ticker="A"), ComboLeg(leg_ticker="B")],
         quote_yes=0.30,
@@ -35,7 +47,7 @@ def arb_rfq() -> ComboRFQ:
 
 @pytest.fixture
 def fair_rfq() -> ComboRFQ:
-    """AB combo quoted at fair -> no arbitrage."""
+    """AB combo quoted at fair -> flags in neither direction."""
     return ComboRFQ(
         rfq_id="rfq-ab-fair",
         mve_collection_ticker="COMBO_AB",
