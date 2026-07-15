@@ -104,6 +104,35 @@ class ArbSignal(BaseModel):
     timestamp: float = Field(default_factory=_now)
 
 
+class ComboEvaluation(BaseModel):
+    """Per-combo scan result (recorded for EVERY combo, flagged or not).
+
+    Lets you watch how close the market gets to a tradeable edge and calibrate the
+    buffer, even when nothing clears the threshold.
+    """
+
+    rfq_id: str
+    mve_collection_ticker: str
+    direction: str                         # buy_underpriced | sell_overpriced
+    combo_quote_yes: float
+    fair_combo: float
+    fees_estimate: float
+    buffer: float
+    arbitrage_margin: float                # directional edge net of fees
+    flagged: bool
+    timestamp: float = Field(default_factory=_now)
+
+    @property
+    def gap_to_flag(self) -> float:
+        """How far the edge is from flagging. >= 0 means it flagged."""
+        return self.arbitrage_margin - self.buffer
+
+    @property
+    def value_gap(self) -> float:
+        """Signed quote-vs-fair gap before fees (fair - quote for buy view)."""
+        return self.fair_combo - self.combo_quote_yes
+
+
 class Order(BaseModel):
     instrument: str                        # leg_ticker or mve_collection_ticker
     instrument_type: InstrumentType

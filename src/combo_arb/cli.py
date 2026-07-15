@@ -61,24 +61,37 @@ def _make_client(cfg: AppConfig, source: str) -> MarketDataClient:
 def scan(
     config: Optional[str] = typer.Option(None, help="Path to config YAML"),
     source: str = typer.Option("mock", help="mock | live"),
-    log_level: str = typer.Option("INFO"),
+    top: int = typer.Option(20, help="Max rows to show, ranked by edge"),
+    flagged_only: bool = typer.Option(False, help="Show only flagged (tradeable) combos"),
+    log_level: str = typer.Option("WARNING"),
 ) -> None:
-    """Scan once and print flagged arbitrage signals."""
+    """Scan once and print every combo's edge + gap-to-flag (near-misses included)."""
     configure_logging(log_level)
     cfg = _load_cfg(config)
     client = _make_client(cfg, source)
     from combo_arb.scanner.scanner import Scanner
 
-    signals = Scanner(client, cfg).scan()
-    if not signals:
-        typer.echo("No arbitrage signals above threshold.")
+    scanner = Scanner(client, cfg)
+    signals = scanner.scan()
+    evals = sorted(scanner.last_evaluations, key=lambda e: e.arbitrage_margin, reverse=True)
+    if flagged_only:
+        evals = [e for e in evals if e.flagged]
+    if not evals:
+        typer.echo("No combos to show (no RFQs returned, or none matched the filter).")
         return
-    typer.echo(f"{len(signals)} signal(s):")
-    for s in signals:
+
+    band = cfg.thresholds.near_miss_band
+    typer.echo(
+        f"Direction: {cfg.strategy.direction}. Evaluated "
+        f"{len(scanner.last_evaluations)} combo(s); {len(signals)} flagged.\n"
+        f"  edge = fair-vs-quote net of fees;  gap = edge - buffer (>=0 flags).\n"
+    )
+    typer.echo(f"  {'combo':<30} {'quote':>6} {'fair':>6} {'edge':>7} {'gap':>7}  status")
+    for e in evals[:top]:
+        status = "FLAG" if e.flagged else ("near" if e.gap_to_flag >= -band else "")
         typer.echo(
-            f"  {s.rfq_id} [{s.mve_collection_ticker}] quote_yes={s.combo_quote_yes:.3f} "
-            f"fair={s.fair_combo:.3f} fees={s.fees_estimate:.3f} "
-            f"margin={s.arbitrage_margin:.3f} size={s.size}"
+            f"  {e.mve_collection_ticker[:30]:<30} {e.combo_quote_yes:>6.3f} "
+            f"{e.fair_combo:>6.3f} {e.arbitrage_margin:>7.3f} {e.gap_to_flag:>7.3f}  {status}"
         )
 
 

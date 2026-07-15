@@ -60,6 +60,9 @@ class ThresholdsConfig(BaseModel):
     buffer_abs: float = 0.01
     buffer_pct: float = 0.005
     min_margin: float = 0.0
+    # How far BELOW the flag threshold an edge can be and still be persisted as a
+    # "near miss" (for buffer calibration). Larger = more rows logged.
+    near_miss_band: float = 0.05
 
 
 class RiskConfig(BaseModel):

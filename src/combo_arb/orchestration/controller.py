@@ -88,6 +88,11 @@ class Controller:
         if self.db is not None:
             for rfq in self.scanner.last_rfqs:
                 self.db.insert_rfq(rfq)
+            # Persist flagged + near-miss evaluations for buffer calibration.
+            band = self.cfg.thresholds.near_miss_band
+            for ev in self.scanner.last_evaluations:
+                if ev.flagged or ev.gap_to_flag >= -band:
+                    self.db.insert_evaluation(ev)
 
         for sig in signals:
             outcome = self._handle_signal(sig)

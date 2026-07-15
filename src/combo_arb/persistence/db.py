@@ -37,6 +37,14 @@ CREATE TABLE IF NOT EXISTS arb_signals (
 );
 CREATE INDEX IF NOT EXISTS ix_sig_ts ON arb_signals(ts);
 
+CREATE TABLE IF NOT EXISTS combo_evaluations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL, rfq_id TEXT, mve_collection_ticker TEXT, direction TEXT,
+    combo_quote_yes REAL, fair_combo REAL, fees_estimate REAL, buffer REAL,
+    arbitrage_margin REAL, gap_to_flag REAL, flagged INTEGER
+);
+CREATE INDEX IF NOT EXISTS ix_eval_ts ON combo_evaluations(ts);
+
 CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts REAL, order_id TEXT, kalshi_order_id TEXT, mode TEXT, signal_ref TEXT,
@@ -109,6 +117,16 @@ class Database:
              sig.size, sig.action.value),
         )
 
+    def insert_evaluation(self, ev) -> None:
+        self.conn.execute(
+            "INSERT INTO combo_evaluations(ts, rfq_id, mve_collection_ticker, direction, "
+            "combo_quote_yes, fair_combo, fees_estimate, buffer, arbitrage_margin, "
+            "gap_to_flag, flagged) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (ev.timestamp, ev.rfq_id, ev.mve_collection_ticker, ev.direction,
+             ev.combo_quote_yes, ev.fair_combo, ev.fees_estimate, ev.buffer,
+             ev.arbitrage_margin, ev.gap_to_flag, int(ev.flagged)),
+        )
+
     def insert_order(self, order: Order) -> None:
         self.conn.execute(
             "INSERT INTO orders(ts, order_id, kalshi_order_id, mode, signal_ref, instrument, "
@@ -154,7 +172,8 @@ class Database:
     # -- reads (summary) ---------------------------------------------------
     def counts(self) -> dict[str, int]:
         out: dict[str, int] = {}
-        for tbl in ("market_snapshots", "combo_rfqs", "arb_signals", "orders", "fills", "pnl"):
+        for tbl in ("market_snapshots", "combo_rfqs", "combo_evaluations",
+                    "arb_signals", "orders", "fills", "pnl"):
             out[tbl] = self.conn.execute(f"SELECT COUNT(*) AS n FROM {tbl}").fetchone()["n"]
         return out
 

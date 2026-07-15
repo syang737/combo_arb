@@ -18,7 +18,7 @@ import logging
 
 from combo_arb.config import AppConfig
 from combo_arb.kalshi.base import MarketDataClient
-from combo_arb.models import ArbSignal, SignalAction
+from combo_arb.models import ArbSignal, ComboEvaluation, SignalAction
 from combo_arb.pricing.model import price_combo
 
 log = logging.getLogger(__name__)
@@ -28,11 +28,13 @@ class Scanner:
     def __init__(self, client: MarketDataClient, cfg: AppConfig):
         self.client = client
         self.cfg = cfg
-        self.last_rfqs: list = []  # RFQs seen in the most recent scan (for telemetry)
+        self.last_rfqs: list = []               # RFQs seen in the most recent scan
+        self.last_evaluations: list[ComboEvaluation] = []  # every priceable combo
 
     def scan(self) -> list[ArbSignal]:
-        """Return flagged arbitrage signals from the current market snapshot."""
+        """Return flagged arbitrage signals; record all evaluations as a side effect."""
         signals: list[ArbSignal] = []
+        evaluations: list[ComboEvaluation] = []
         rfqs = self.client.get_combo_rfqs()
         self.last_rfqs = rfqs
         for rfq in rfqs:
@@ -46,6 +48,20 @@ class Scanner:
             if result is None:
                 log.debug("skipping %s: unpriceable", rfq.rfq_id)
                 continue
+
+            evaluations.append(
+                ComboEvaluation(
+                    rfq_id=rfq.rfq_id,
+                    mve_collection_ticker=rfq.mve_collection_ticker,
+                    direction=self.cfg.strategy.direction,
+                    combo_quote_yes=rfq.quote_yes,
+                    fair_combo=result.fair_combo,
+                    fees_estimate=result.fees_estimate,
+                    buffer=result.buffer,
+                    arbitrage_margin=result.arbitrage_margin,
+                    flagged=result.flagged,
+                )
+            )
             if not result.flagged:
                 continue
 
@@ -64,4 +80,5 @@ class Scanner:
                     action=SignalAction.HEDGE_VIA_LEGS,
                 )
             )
+        self.last_evaluations = evaluations
         return signals
