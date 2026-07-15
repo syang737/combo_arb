@@ -150,18 +150,24 @@ def markets(
     config: Optional[str] = typer.Option(None, help="Path to config YAML"),
     limit: int = typer.Option(5),
 ) -> None:
-    """Read-only auth smoke test: list a few live markets (never places orders)."""
+    """Auth smoke test: validate credentials against an authenticated endpoint
+    (/portfolio/balance) then list a few markets. Never places orders."""
     configure_logging("INFO")
     cfg = _load_cfg(config)
-    if not (cfg.secrets.kalshi_api_key_id and cfg.secrets.kalshi_private_key_path):
-        typer.echo("Missing KALSHI_API_KEY_ID / KALSHI_PRIVATE_KEY_PATH in env/.env.")
-        raise typer.Exit(code=1)
+    _require_live_credentials(cfg)
     from combo_arb.kalshi.client import KalshiClient
 
     client = KalshiClient(cfg)
     try:
+        # /markets is PUBLIC and cannot confirm auth; hit an authenticated endpoint.
+        try:
+            balance = client.get_balance()
+        except RuntimeError as exc:
+            typer.echo(f"Auth FAILED ({cfg.environment.value}): {exc}")
+            raise typer.Exit(code=1)
+        typer.echo(f"Auth OK ({cfg.environment.value}). Balance: {balance.get('balance')} cents.")
         rows = client.get_markets(limit=limit)
-        typer.echo(f"Auth OK ({cfg.environment.value}). {len(rows)} market(s):")
+        typer.echo(f"{len(rows)} market(s):")
         for m in rows:
             typer.echo(f"  {m.get('ticker')}: yes_bid={m.get('yes_bid')} yes_ask={m.get('yes_ask')}")
     finally:

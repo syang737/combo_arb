@@ -41,6 +41,18 @@ def _cents_to_dollars(v: Any) -> Optional[float]:
     return c / 100.0
 
 
+def _client_error_message(method: str, endpoint: str, resp: "httpx.Response") -> str:
+    body = (resp.text or "")[:300]
+    msg = f"Kalshi {resp.status_code} on {method} {endpoint}: {body}"
+    if resp.status_code == 401:
+        msg += (
+            " | 401 = authentication rejected. Check that KALSHI_API_KEY_ID matches "
+            "the loaded private key, the system clock is in sync, and the key belongs "
+            "to this environment (prod vs demo)."
+        )
+    return msg
+
+
 class _RateLimiter:
     """Minimum-interval limiter, thread-safe."""
 
@@ -96,15 +108,25 @@ class KalshiClient(MarketDataClient):
                     method, url, params=params, json=json,
                     headers=self._headers(method, endpoint),
                 )
-                if resp.status_code == 429:  # rate limited -> back off
-                    time.sleep(2 ** attempt)
-                    continue
-                resp.raise_for_status()
-                return resp.json() if resp.content else {}
-            except httpx.HTTPError as exc:
+            except httpx.HTTPError as exc:  # transport/network error -> retry
                 last_exc = exc
                 if attempt < retries - 1:
                     time.sleep(2 ** attempt)
+                continue
+
+            if resp.status_code == 429:  # rate limited -> back off and retry
+                last_exc = RuntimeError("429 rate limited")
+                time.sleep(2 ** attempt)
+                continue
+            if 400 <= resp.status_code < 500:
+                # Client errors are not transient; do not retry.
+                raise RuntimeError(_client_error_message(method, endpoint, resp))
+            if resp.status_code >= 500:  # server error -> retry
+                last_exc = RuntimeError(f"{resp.status_code} server error")
+                if attempt < retries - 1:
+                    time.sleep(2 ** attempt)
+                continue
+            return resp.json() if resp.content else {}
         raise RuntimeError(f"Kalshi request failed: {method} {endpoint}: {last_exc}")
 
     def _get(self, endpoint: str, params: Optional[dict] = None) -> dict:
@@ -133,6 +155,14 @@ class KalshiClient(MarketDataClient):
 
     def get_orderbook(self, ticker: str) -> dict:
         return self._get(f"/markets/{ticker}/orderbook").get("orderbook", {})
+
+    def get_balance(self) -> dict:
+        """Authenticated endpoint used to genuinely validate credentials.
+
+        Unlike /markets (public), this fails with 401 if auth is wrong, so it is a
+        real auth smoke test.
+        """
+        return self._get("/portfolio/balance")
 
     def get_combo_rfqs(self, limit: int = 100, max_pages: int = 10) -> list[ComboRFQ]:
         """Fetch open RFQs from GET /communications/rfqs (cursor-paginated).
