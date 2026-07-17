@@ -179,13 +179,17 @@ class KalshiClient(MarketDataClient):
         return self._get("/portfolio/balance")
 
     def get_combo_rfqs(self, limit: int = 100, max_pages: int = 10) -> list[ComboRFQ]:
-        """Fetch open RFQs from GET /communications/rfqs (cursor-paginated).
+        """Return combo candidates (with prices) from the configured discovery source.
 
-        Endpoint + response shape (``rfqs`` list, ``cursor``) confirmed against the
-        Kalshi REST docs. RFQs are returned for all markets; combo (multivariate
-        event) RFQs carry ``mve_collection_ticker`` + ``mve_selected_legs``, which
-        :meth:`_parse_rfq` extracts. Non-combo RFQs (no legs) are skipped.
+        ``rfq``     -> combos that currently have open RFQs (/communications/rfqs).
+        ``markets`` -> enumerate combo markets directly (/markets), covering combos
+                       that have no open RFQ. Both return priced ComboRFQ objects.
         """
+        if self.cfg.discovery.source == "markets":
+            return self._combos_from_markets(limit, max_pages)
+        return self._combos_from_rfqs(limit, max_pages)
+
+    def _combos_from_rfqs(self, limit: int, max_pages: int) -> list[ComboRFQ]:
         cap = self.cfg.polling.max_combos_per_scan
         rfqs: list[ComboRFQ] = []
         cursor: Optional[str] = None
@@ -210,6 +214,66 @@ class KalshiClient(MarketDataClient):
             if not cursor:
                 break
         return rfqs
+
+    def _combos_from_markets(self, limit: int, max_pages: int) -> list[ComboRFQ]:
+        """Enumerate combo markets from /markets. Each combo market carries its own
+        price and legs, so no extra per-combo fetch is needed."""
+        cap = self.cfg.polling.max_combos_per_scan
+        buying = self.cfg.strategy.direction != "sell_overpriced"
+        series_list = self.cfg.discovery.series_tickers or [None]
+        combos: list[ComboRFQ] = []
+        for series in series_list:
+            cursor: Optional[str] = None
+            for _ in range(max_pages):
+                params: dict = {"limit": limit, "status": self.cfg.discovery.market_status}
+                if series:
+                    params["series_ticker"] = series
+                if cursor:
+                    params["cursor"] = cursor
+                try:
+                    data = self._get("/markets", params=params)
+                except RuntimeError as exc:
+                    log.warning("market enumeration failed (%s): %s", series, exc)
+                    break
+                for m in data.get("markets", []):
+                    combo = self._combo_from_market(m, buying)
+                    if combo is not None:
+                        combos.append(combo)
+                        if len(combos) >= cap:
+                            return combos
+                cursor = data.get("cursor")
+                if not cursor:
+                    break
+        return combos
+
+    @staticmethod
+    def _combo_from_market(m: dict, buying: bool) -> Optional[ComboRFQ]:
+        """Build a priced ComboRFQ from a combo-market object (has legs + price)."""
+        legs_raw = m.get("mve_selected_legs")
+        if not legs_raw:
+            return None  # not a combo market
+        try:
+            legs = [
+                ComboLeg(
+                    leg_ticker=leg.get("market_ticker") or leg.get("ticker"),
+                    side=Side(leg.get("side", "yes")),
+                    ratio=int(leg.get("ratio", 1)),
+                )
+                for leg in legs_raw
+            ]
+        except (ValueError, TypeError):
+            return None
+        if not legs or not all(leg.leg_ticker for leg in legs):
+            return None
+        return ComboRFQ(
+            rfq_id=str(m.get("ticker")),
+            mve_collection_ticker=m.get("mve_collection_ticker", ""),
+            market_ticker=m.get("ticker"),
+            legs=legs,
+            quote_yes=_price_field(m, "yes_ask" if buying else "yes_bid"),
+            quote_no=_price_field(m, "no_ask" if buying else "no_bid"),
+            size=1,
+        )
 
     def _set_combo_quote(self, rfq: ComboRFQ) -> None:
         """Read the combo's tradeable price from its own market ticker.

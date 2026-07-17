@@ -83,6 +83,18 @@ class ExecutionConfig(BaseModel):
     combo_fill_price: str = "yes_bid"   # yes_bid | quote_yes
 
 
+class DiscoveryConfig(BaseModel):
+    # rfq:     evaluate combos that currently have open RFQs (proven; combos only
+    #          appear when someone requests a quote).
+    # markets: enumerate combo markets directly from /markets (price + legs are on
+    #          the market object), covering the whole universe, not just open RFQs.
+    source: str = "rfq"                       # rfq | markets
+    # For markets mode: which series to enumerate. Empty = scan /markets broadly
+    # (heavy). Confirm the exact series tickers for your account.
+    series_tickers: list[str] = []
+    market_status: str = "open"
+
+
 class PollingConfig(BaseModel):
     interval_ms: int = 1000
     max_requests_per_sec: int = 8
@@ -122,6 +134,7 @@ class AppConfig(BaseModel):
     thresholds: ThresholdsConfig = Field(default_factory=ThresholdsConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
+    discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
     polling: PollingConfig = Field(default_factory=PollingConfig)
     persistence: PersistenceConfig = Field(default_factory=PersistenceConfig)
     settlement_sim: SettlementSimConfig = Field(default_factory=SettlementSimConfig)

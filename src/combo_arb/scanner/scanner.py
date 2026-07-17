@@ -36,7 +36,7 @@ class Scanner:
         """Return flagged arbitrage signals; record all evaluations as a side effect."""
         signals: list[ArbSignal] = []
         evaluations: list[ComboEvaluation] = []
-        leg_prices_seen: dict[str, LegPrice] = {}
+        leg_cache: dict[str, LegPrice] = {}  # each leg fetched at most once per scan
         rfqs = self.client.get_combo_rfqs()
         self.last_rfqs = rfqs
         for rfq in rfqs:
@@ -46,8 +46,10 @@ class Scanner:
                 log.debug("skipping %s: no combo quote available", rfq.rfq_id)
                 continue
             tickers = [leg.leg_ticker for leg in rfq.legs]
-            leg_prices = self.client.get_leg_prices(tickers)
-            leg_prices_seen.update(leg_prices)  # capture live leg quotes for telemetry
+            missing = [t for t in tickers if t not in leg_cache]
+            if missing:
+                leg_cache.update(self.client.get_leg_prices(missing))
+            leg_prices = {t: leg_cache[t] for t in tickers if t in leg_cache}
             if len(leg_prices) < len(tickers):
                 log.debug("skipping %s: missing leg prices", rfq.rfq_id)
                 continue
@@ -89,5 +91,5 @@ class Scanner:
                 )
             )
         self.last_evaluations = evaluations
-        self.last_leg_prices = leg_prices_seen
+        self.last_leg_prices = leg_cache
         return signals
