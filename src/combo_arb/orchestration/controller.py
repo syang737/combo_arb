@@ -88,6 +88,9 @@ class Controller:
         if self.db is not None:
             for rfq in self.scanner.last_rfqs:
                 self.db.insert_rfq(rfq)
+            # Live leg quotes actually used to compute fair value (deduped per scan).
+            for ticker, lp in self.scanner.last_leg_prices.items():
+                self.db.insert_snapshot(lp, implied_prob(lp, self.cfg.pricing))
             # Persist flagged + near-miss evaluations for buffer calibration.
             band = self.cfg.thresholds.near_miss_band
             for ev in self.scanner.last_evaluations:
@@ -160,9 +163,9 @@ class Controller:
     def _persist_signal(self, sig: ArbSignal, leg_probs: dict) -> None:
         if self.db is None:
             return
+        # Leg snapshots are persisted once per scan in run_once (all evaluated legs),
+        # so here we only record the signal itself.
         self.db.insert_signal(sig)
-        for ticker, lp in sig.leg_prices.items():
-            self.db.insert_snapshot(lp, leg_probs.get(ticker))
 
     def _persist_execution(self, sig, decision, fills, trade, pnl_stats) -> None:
         if self.db is None:

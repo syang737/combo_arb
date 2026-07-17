@@ -18,7 +18,7 @@ import logging
 
 from combo_arb.config import AppConfig
 from combo_arb.kalshi.base import MarketDataClient
-from combo_arb.models import ArbSignal, ComboEvaluation, SignalAction
+from combo_arb.models import ArbSignal, ComboEvaluation, LegPrice, SignalAction
 from combo_arb.pricing.model import price_combo
 
 log = logging.getLogger(__name__)
@@ -30,16 +30,19 @@ class Scanner:
         self.cfg = cfg
         self.last_rfqs: list = []               # RFQs seen in the most recent scan
         self.last_evaluations: list[ComboEvaluation] = []  # every priceable combo
+        self.last_leg_prices: dict[str, LegPrice] = {}     # deduped legs this scan
 
     def scan(self) -> list[ArbSignal]:
         """Return flagged arbitrage signals; record all evaluations as a side effect."""
         signals: list[ArbSignal] = []
         evaluations: list[ComboEvaluation] = []
+        leg_prices_seen: dict[str, LegPrice] = {}
         rfqs = self.client.get_combo_rfqs()
         self.last_rfqs = rfqs
         for rfq in rfqs:
             tickers = [leg.leg_ticker for leg in rfq.legs]
             leg_prices = self.client.get_leg_prices(tickers)
+            leg_prices_seen.update(leg_prices)  # capture live leg quotes for telemetry
             if len(leg_prices) < len(tickers):
                 log.debug("skipping %s: missing leg prices", rfq.rfq_id)
                 continue
@@ -81,4 +84,5 @@ class Scanner:
                 )
             )
         self.last_evaluations = evaluations
+        self.last_leg_prices = leg_prices_seen
         return signals
