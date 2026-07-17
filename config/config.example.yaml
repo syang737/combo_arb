@@ -44,6 +44,7 @@ execution:
 polling:
   interval_ms: 1000         # scanner poll cadence
   max_requests_per_sec: 8   # client-side rate limit
+  max_combos_per_scan: 25   # cap combos priced per scan (each = 1 combo + N leg reads)
 
 persistence:
   db_path: data/combo_arb.db

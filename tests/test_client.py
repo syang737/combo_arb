@@ -1,7 +1,9 @@
 """Unit tests for the live client's pure logic (no network)."""
 
+import pytest
+
 from combo_arb.config import AppConfig
-from combo_arb.kalshi.client import KalshiClient, _cents_to_dollars
+from combo_arb.kalshi.client import KalshiClient, _cents_to_dollars, _price_field
 from combo_arb.models import Side
 
 
@@ -11,6 +13,19 @@ def test_cents_to_dollars():
     assert _cents_to_dollars(0) is None      # 0 = no quote
     assert _cents_to_dollars(None) is None
     assert _cents_to_dollars("bad") is None
+
+
+def test_price_field_dollars_and_cents():
+    # Real combo-market payload uses *_dollars string fields.
+    m = {"yes_bid_dollars": "0.3270", "yes_ask_dollars": "0.3380",
+         "last_price_dollars": "0.3360", "no_bid_dollars": "0.0000"}
+    assert _price_field(m, "yes_ask") == pytest.approx(0.338)
+    assert _price_field(m, "yes_bid") == pytest.approx(0.327)
+    assert _price_field(m, "last_price") == pytest.approx(0.336)
+    assert _price_field(m, "no_bid") is None          # "0.0000" -> no quote
+    # Legacy integer-cents fallback still works.
+    assert _price_field({"yes_bid": 49}, "yes_bid") == pytest.approx(0.49)
+    assert _price_field({}, "yes_ask") is None
 
 
 def test_get_leg_price_converts_cents(monkeypatch):

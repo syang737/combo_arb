@@ -83,6 +83,8 @@ class ExecutionConfig(BaseModel):
 class PollingConfig(BaseModel):
     interval_ms: int = 1000
     max_requests_per_sec: int = 8
+    # Cap combos priced per scan (each costs 1 combo-market + N leg-market reads).
+    max_combos_per_scan: int = 25
 
 
 class PersistenceConfig(BaseModel):

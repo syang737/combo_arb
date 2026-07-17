@@ -41,6 +41,20 @@ def _cents_to_dollars(v: Any) -> Optional[float]:
     return c / 100.0
 
 
+def _price_field(m: dict, base: str) -> Optional[float]:
+    """Read a market price that may be a ``{base}_dollars`` string (e.g. "0.3380")
+    or a legacy integer-cents ``{base}`` field. Returns dollars, or None if absent
+    or zero (0 = no quote)."""
+    dollars = m.get(f"{base}_dollars")
+    if dollars is not None:
+        try:
+            v = float(dollars)
+            return v if v > 0 else None
+        except (TypeError, ValueError):
+            pass
+    return _cents_to_dollars(m.get(base))
+
+
 def _client_error_message(method: str, endpoint: str, resp: "httpx.Response") -> str:
     body = (resp.text or "")[:300]
     msg = f"Kalshi {resp.status_code} on {method} {endpoint}: {body}"
@@ -148,9 +162,9 @@ class KalshiClient(MarketDataClient):
         m = self.get_market(ticker)
         return LegPrice(
             leg_ticker=ticker,
-            best_bid=_cents_to_dollars(m.get("yes_bid")),
-            best_ask=_cents_to_dollars(m.get("yes_ask")),
-            last_trade_price=_cents_to_dollars(m.get("last_price")),
+            best_bid=_price_field(m, "yes_bid"),
+            best_ask=_price_field(m, "yes_ask"),
+            last_trade_price=_price_field(m, "last_price"),
         )
 
     def get_orderbook(self, ticker: str) -> dict:
@@ -172,6 +186,7 @@ class KalshiClient(MarketDataClient):
         event) RFQs carry ``mve_collection_ticker`` + ``mve_selected_legs``, which
         :meth:`_parse_rfq` extracts. Non-combo RFQs (no legs) are skipped.
         """
+        cap = self.cfg.polling.max_combos_per_scan
         rfqs: list[ComboRFQ] = []
         cursor: Optional[str] = None
         for _ in range(max_pages):
@@ -185,12 +200,33 @@ class KalshiClient(MarketDataClient):
                 break
             for raw in data.get("rfqs", []):
                 parsed = self._parse_rfq(raw)
-                if parsed is not None:
-                    rfqs.append(parsed)
+                if parsed is None:
+                    continue
+                self._set_combo_quote(parsed)  # price the combo from its own market
+                rfqs.append(parsed)
+                if len(rfqs) >= cap:
+                    return rfqs
             cursor = data.get("cursor")
             if not cursor:
                 break
         return rfqs
+
+    def _set_combo_quote(self, rfq: ComboRFQ) -> None:
+        """Read the combo's tradeable price from its own market ticker.
+
+        Combos are real markets with a book; the executable price is the ask (when
+        buying) or the bid (when selling the combo YES).
+        """
+        if not rfq.market_ticker:
+            return
+        try:
+            m = self.get_market(rfq.market_ticker)
+        except RuntimeError as exc:
+            log.debug("combo market %s unavailable: %s", rfq.market_ticker, exc)
+            return
+        buying = self.cfg.strategy.direction != "sell_overpriced"
+        rfq.quote_yes = _price_field(m, "yes_ask" if buying else "yes_bid")
+        rfq.quote_no = _price_field(m, "no_ask" if buying else "no_bid")
 
     @staticmethod
     def _parse_rfq(raw: dict) -> Optional[ComboRFQ]:
@@ -215,6 +251,7 @@ class KalshiClient(MarketDataClient):
             return ComboRFQ(
                 rfq_id=str(raw.get("id") or raw.get("rfq_id")),
                 mve_collection_ticker=raw.get("mve_collection_ticker", ""),
+                market_ticker=raw.get("market_ticker"),
                 legs=legs,
                 # None unless a price is present (it is not on the RFQ itself).
                 quote_yes=_cents_to_dollars(raw.get("yes_bid") or raw.get("quote_yes")),

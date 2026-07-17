@@ -79,8 +79,9 @@ class ComboRFQ(BaseModel):
 
     rfq_id: str
     mve_collection_ticker: str
+    market_ticker: Optional[str] = None    # the tradeable combo market (priced directly)
     legs: list[ComboLeg]
-    quote_yes: Optional[float] = None      # combo YES price; None until a maker quote is read
+    quote_yes: Optional[float] = None      # combo YES price read from the combo market
     quote_no: Optional[float] = None       # NO side (not assumed tradeable by this engine)
     size: int = 1                          # contracts requested / available
     quote_time: float = Field(default_factory=_now)
