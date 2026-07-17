@@ -1,0 +1,26 @@
+# Keep secrets, local state, and cruft OUT of the image.
+.git
+.venv
+venv
+env
+__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.coverage
+htmlcov
+
+# Secrets — never bake these in
+.env
+*.pem
+*.key
+secrets/
+
+# Local data / DBs
+data
+*.db
+*.sqlite*
+
+# Docs/dev
+.idea
+.vscode
