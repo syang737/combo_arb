@@ -40,6 +40,11 @@ class Scanner:
         rfqs = self.client.get_combo_rfqs()
         self.last_rfqs = rfqs
         for rfq in rfqs:
+            if rfq.quote_yes is None:
+                # RFQ carries no price; a combo can only be priced by creating your
+                # own RFQ and reading the maker quote back. Nothing to evaluate here.
+                log.debug("skipping %s: no combo quote available", rfq.rfq_id)
+                continue
             tickers = [leg.leg_ticker for leg in rfq.legs]
             leg_prices = self.client.get_leg_prices(tickers)
             leg_prices_seen.update(leg_prices)  # capture live leg quotes for telemetry

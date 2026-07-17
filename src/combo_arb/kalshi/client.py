@@ -194,22 +194,30 @@ class KalshiClient(MarketDataClient):
 
     @staticmethod
     def _parse_rfq(raw: dict) -> Optional[ComboRFQ]:
+        """Parse a /communications/rfqs object.
+
+        NOTE: an RFQ is a *request* and carries no price (only mve_selected_legs,
+        target_cost_dollars, status). ``quote_yes`` stays None here; the tradeable
+        combo price comes from maker QUOTES (/communications/quotes), which are
+        only visible to the RFQ's creator.
+        """
         try:
             legs = [
                 ComboLeg(
-                    leg_ticker=leg.get("ticker") or leg.get("market_ticker"),
+                    leg_ticker=leg.get("market_ticker") or leg.get("ticker"),
                     side=Side(leg.get("side", "yes")),
                     ratio=int(leg.get("ratio", 1)),
                 )
                 for leg in raw.get("mve_selected_legs", raw.get("legs", []))
             ]
-            if not legs:
+            if not legs or not all(leg.leg_ticker for leg in legs):
                 return None
             return ComboRFQ(
-                rfq_id=str(raw.get("rfq_id") or raw.get("id")),
+                rfq_id=str(raw.get("id") or raw.get("rfq_id")),
                 mve_collection_ticker=raw.get("mve_collection_ticker", ""),
                 legs=legs,
-                quote_yes=_cents_to_dollars(raw.get("yes_bid") or raw.get("quote_yes")) or 0.0,
+                # None unless a price is present (it is not on the RFQ itself).
+                quote_yes=_cents_to_dollars(raw.get("yes_bid") or raw.get("quote_yes")),
                 quote_no=_cents_to_dollars(raw.get("no_bid") or raw.get("quote_no")),
                 size=int(raw.get("size", 1)),
             )
