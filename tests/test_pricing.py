@@ -76,3 +76,33 @@ def test_not_flagged_when_fair(cfg, legs, fair_rfq):
         cfg.strategy.direction = direction
         res = price_combo(fair_rfq, legs, cfg)
         assert res is not None and res.flagged is False
+
+
+def test_fees_are_delta_scaled(cfg, legs, underpriced_rfq):
+    # Delta-scaled leg fees must be less than charging a full contract per leg.
+    from combo_arb.pricing.fees import marginal_fee_per_contract
+    from combo_arb.pricing.model import estimate_fees_per_contract
+
+    fees = estimate_fees_per_contract(underpriced_rfq.quote_yes, underpriced_rfq, legs, cfg)
+    full = marginal_fee_per_contract(underpriced_rfq.quote_yes, cfg=cfg.fees) + sum(
+        marginal_fee_per_contract(legs[leg.leg_ticker].mid, cfg=cfg.fees)
+        for leg in underpriced_rfq.legs
+    )
+    assert 0 < fees < full
+
+
+def test_buffer_flag_off_by_default(cfg, legs, underpriced_rfq):
+    assert cfg.thresholds.apply_buffer is False
+    res = price_combo(underpriced_rfq, legs, cfg)
+    assert res.buffer == 0.0                    # buffer not applied in paper
+    assert res.flagged is True                  # flags on positive net-of-fees edge
+
+
+def test_buffer_applied_when_enabled(cfg, legs, underpriced_rfq):
+    cfg.thresholds.apply_buffer = True
+    res = price_combo(underpriced_rfq, legs, cfg)
+    assert res.buffer > 0.0
+    # Edge (net of fees) is unchanged; only the flag threshold moves.
+    assert res.arbitrage_margin == pytest.approx(
+        price_combo(underpriced_rfq, legs, cfg).arbitrage_margin
+    )

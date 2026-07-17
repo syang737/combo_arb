@@ -26,6 +26,7 @@ thresholds:
   buffer_abs: 0.01          # absolute $ buffer added on top of fees
   buffer_pct: 0.005         # OR 0.5% of fair value, whichever is larger
   min_margin: 0.0           # discard signals whose net margin is below this
+  apply_buffer: false       # off for paper/exploration; auto-forced on when live is armed
   near_miss_band: 0.05      # persist non-flagged combos within this of the threshold
 
 risk:

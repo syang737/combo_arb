@@ -28,9 +28,16 @@ from combo_arb.models import (
     Position,
     Side,
 )
-from combo_arb.pricing.model import implied_prob
+from combo_arb.pricing.model import leg_deltas as _leg_deltas
 
 _EPS = 1e-9
+
+
+def leg_deltas(
+    signal: ArbSignal, leg_prices: dict[str, LegPrice], cfg: AppConfig
+) -> dict[str, float]:
+    """Hedge ratios for a signal's legs (thin wrapper over the pricing model)."""
+    return _leg_deltas(signal.legs, leg_prices, cfg.pricing)
 
 
 @dataclass
@@ -47,42 +54,6 @@ class RiskDecision:
         if self.combo_order is not None:
             orders.insert(0, self.combo_order)
         return orders
-
-
-def leg_deltas(
-    signal: ArbSignal,
-    leg_prices: dict[str, LegPrice],
-    cfg: AppConfig,
-) -> dict[str, float]:
-    """Signed first-order delta of the combo w.r.t. each leg's underlying prob.
-
-    Contribution c_i = p_i (YES leg) or (1 - p_i) (NO leg); combo = product(c_i).
-    delta_i = (product of other c_j) * d(c_i)/d(p_i), where d(c_i)/d(p_i) is +1
-    for a YES leg and -1 for a NO leg. Scaled by ``correlation_factor``.
-    """
-    contribs: dict[str, float] = {}
-    signs: dict[str, float] = {}
-    for leg in signal.legs:
-        lp = leg_prices.get(leg.leg_ticker)
-        p = implied_prob(lp, cfg.pricing) if lp else None
-        if p is None:
-            continue
-        if leg.side == Side.YES:
-            contribs[leg.leg_ticker] = p
-            signs[leg.leg_ticker] = 1.0
-        else:
-            contribs[leg.leg_ticker] = 1.0 - p
-            signs[leg.leg_ticker] = -1.0
-
-    deltas: dict[str, float] = {}
-    k = cfg.pricing.correlation_factor
-    for ticker in contribs:
-        prod_others = 1.0
-        for other, c in contribs.items():
-            if other != ticker:
-                prod_others *= c
-        deltas[ticker] = prod_others * signs[ticker] * k
-    return deltas
 
 
 class HedgeModel(Protocol):

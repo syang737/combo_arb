@@ -60,6 +60,9 @@ class ThresholdsConfig(BaseModel):
     buffer_abs: float = 0.01
     buffer_pct: float = 0.005
     min_margin: float = 0.0
+    # Apply the safety buffer on top of fees. Off by default (paper/exploration
+    # flags on any positive net-of-fees edge); auto-forced on when live is armed.
+    apply_buffer: bool = False
     # How far BELOW the flag threshold an edge can be and still be persisted as a
     # "near miss" (for buffer calibration). Larger = more rows logged.
     near_miss_band: float = 0.05

@@ -81,17 +81,23 @@ def scan(
         return
 
     band = cfg.thresholds.near_miss_band
+    buffer_on = cfg.thresholds.apply_buffer or cfg.live_trading_armed()
     typer.echo(
         f"Direction: {cfg.strategy.direction}. Evaluated "
-        f"{len(scanner.last_evaluations)} combo(s); {len(signals)} flagged.\n"
-        f"  edge = fair-vs-quote net of fees;  gap = edge - buffer (>=0 flags).\n"
+        f"{len(scanner.last_evaluations)} combo(s); {len(signals)} flagged. "
+        f"buffer={'ON' if buffer_on else 'OFF'}\n"
+        f"  edge = fair - quote - fees;  gap = edge - buffer (>=0 flags).\n"
     )
-    typer.echo(f"  {'combo':<30} {'quote':>6} {'fair':>6} {'edge':>7} {'gap':>7}  status")
+    typer.echo(
+        f"  {'combo':<30} {'quote':>6} {'fair':>6} {'fees':>6} "
+        f"{'edge':>7} {'buf':>6} {'gap':>7}  status"
+    )
     for e in evals[:top]:
         status = "FLAG" if e.flagged else ("near" if e.gap_to_flag >= -band else "")
         typer.echo(
             f"  {e.mve_collection_ticker[:30]:<30} {e.combo_quote_yes:>6.3f} "
-            f"{e.fair_combo:>6.3f} {e.arbitrage_margin:>7.3f} {e.gap_to_flag:>7.3f}  {status}"
+            f"{e.fair_combo:>6.3f} {e.fees_estimate:>6.3f} {e.arbitrage_margin:>7.3f} "
+            f"{e.buffer:>6.3f} {e.gap_to_flag:>7.3f}  {status}"
         )
 
 
