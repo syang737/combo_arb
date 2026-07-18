@@ -100,6 +100,9 @@ class PollingConfig(BaseModel):
     max_requests_per_sec: int = 8
     # Cap combos priced per scan (each costs 1 combo-market + N leg-market reads).
     max_combos_per_scan: int = 25
+    # Reuse a leg price across combos only if fetched within this window. 0 = always
+    # fetch fresh (no reuse) so a combo is never evaluated against a stale leg.
+    leg_cache_ttl_ms: int = 0
 
 
 class PersistenceConfig(BaseModel):

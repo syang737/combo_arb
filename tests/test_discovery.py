@@ -17,7 +17,7 @@ class _CountingClient(MockKalshiClient):
         return super().get_leg_prices(tickers)
 
 
-def test_leg_cache_fetches_each_leg_once(cfg):
+def _shared_leg_setup():
     legs = {
         "A": LegPrice(leg_ticker="A", best_bid=0.49, best_ask=0.51),
         "B": LegPrice(leg_ticker="B", best_bid=0.39, best_ask=0.41),
@@ -31,15 +31,29 @@ def test_leg_cache_fetches_each_leg_once(cfg):
                  legs=[ComboLeg(leg_ticker="A"), ComboLeg(leg_ticker="C")],  # A shared
                  quote_yes=0.10, size=20),
     ]
+    return legs, rfqs
+
+
+def test_legs_fresh_by_default_no_reuse(cfg):
+    # ttl 0 (default): a shared leg is re-fetched for each combo (no stale reuse).
+    assert cfg.polling.leg_cache_ttl_ms == 0
+    legs, rfqs = _shared_leg_setup()
     client = _CountingClient(leg_prices=legs, rfqs=rfqs)
     Scanner(client, cfg).scan()
-    # A appears in both combos but must be fetched only once.
-    assert sorted(client.fetched) == ["A", "B", "C"]
+    assert client.fetched.count("A") == 2   # fetched fresh per combo
 
 
-def test_markets_enumeration_builds_priced_combos(monkeypatch):
+def test_leg_reuse_within_ttl(cfg):
+    cfg.polling.leg_cache_ttl_ms = 60_000    # 60s window -> reuse
+    legs, rfqs = _shared_leg_setup()
+    client = _CountingClient(leg_prices=legs, rfqs=rfqs)
+    Scanner(client, cfg).scan()
+    assert client.fetched.count("A") == 1   # reused within TTL
+
+
+def test_markets_enumeration_builds_combo_identities(monkeypatch):
     cfg = AppConfig()
-    cfg.discovery.source = "markets"  # default direction is buy -> uses yes_ask
+    cfg.discovery.source = "markets"
     client = KalshiClient.__new__(KalshiClient)  # skip __init__ (no network)
     client.cfg = cfg
 
@@ -52,7 +66,6 @@ def test_markets_enumeration_builds_priced_combos(monkeypatch):
                     {"market_ticker": "LEG-A", "side": "yes"},
                     {"market_ticker": "LEG-B", "side": "no"},
                 ],
-                "yes_ask_dollars": "0.3380",
             },
             {"ticker": "NOT-A-COMBO"},  # no mve_selected_legs -> skipped
         ],
@@ -64,5 +77,16 @@ def test_markets_enumeration_builds_priced_combos(monkeypatch):
     assert len(combos) == 1
     c = combos[0]
     assert c.market_ticker == "KXMVE-COMBO1"
-    assert c.quote_yes == pytest.approx(0.338)   # buying -> yes_ask
+    assert c.quote_yes is None                     # priced later, fresh, in the loop
     assert [leg.side.value for leg in c.legs] == ["yes", "no"]
+
+
+def test_get_combo_quote_reads_fresh_price(monkeypatch):
+    cfg = AppConfig()  # buy direction -> uses yes_ask
+    client = KalshiClient.__new__(KalshiClient)
+    client.cfg = cfg
+    monkeypatch.setattr(client, "get_market",
+                        lambda ticker: {"yes_ask_dollars": "0.3380", "yes_bid_dollars": "0.3270"})
+    rfq = ComboRFQ(rfq_id="x", mve_collection_ticker="K", market_ticker="KXMVE-COMBO1",
+                   legs=[ComboLeg(leg_ticker="LEG-A")])
+    assert client.get_combo_quote(rfq) == pytest.approx(0.338)

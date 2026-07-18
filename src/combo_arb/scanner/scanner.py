@@ -15,6 +15,7 @@ operationally executable or the signal is emitted as ``SIGNAL_ONLY``.
 from __future__ import annotations
 
 import logging
+import time
 
 from combo_arb.config import AppConfig
 from combo_arb.kalshi.base import MarketDataClient
@@ -30,26 +31,42 @@ class Scanner:
         self.cfg = cfg
         self.last_rfqs: list = []               # RFQs seen in the most recent scan
         self.last_evaluations: list[ComboEvaluation] = []  # every priceable combo
-        self.last_leg_prices: dict[str, LegPrice] = {}     # deduped legs this scan
+        self.last_leg_prices: dict[str, LegPrice] = {}     # legs used this scan
 
     def scan(self) -> list[ArbSignal]:
-        """Return flagged arbitrage signals; record all evaluations as a side effect."""
+        """Return flagged arbitrage signals; record all evaluations as a side effect.
+
+        Each combo's price and its legs are fetched together at evaluation time so
+        the quote and the fair value are captured within the same instant. A leg is
+        only reused across combos if fetched within ``polling.leg_cache_ttl_ms``
+        (0 = always fresh), so a signal is never computed against a stale leg.
+        """
         signals: list[ArbSignal] = []
         evaluations: list[ComboEvaluation] = []
-        leg_cache: dict[str, LegPrice] = {}  # each leg fetched at most once per scan
+        ttl = self.cfg.polling.leg_cache_ttl_ms / 1000.0
+        leg_cache: dict[str, tuple[LegPrice, float]] = {}  # ticker -> (price, fetched_at)
+
+        def fetch_legs(tickers: list[str]) -> dict[str, LegPrice]:
+            now = time.monotonic()
+            need = [t for t in tickers
+                    if not (ttl > 0 and t in leg_cache and now - leg_cache[t][1] <= ttl)]
+            if need:
+                fetched_at = time.monotonic()
+                for t, lp in self.client.get_leg_prices(need).items():
+                    leg_cache[t] = (lp, fetched_at)
+            return {t: leg_cache[t][0] for t in tickers if t in leg_cache}
+
         rfqs = self.client.get_combo_rfqs()
         self.last_rfqs = rfqs
         for rfq in rfqs:
-            if rfq.quote_yes is None:
-                # RFQ carries no price; a combo can only be priced by creating your
-                # own RFQ and reading the maker quote back. Nothing to evaluate here.
+            # Price the combo fresh, then its legs, back-to-back (synchronized).
+            quote = self.client.get_combo_quote(rfq)
+            if quote is None:
                 log.debug("skipping %s: no combo quote available", rfq.rfq_id)
                 continue
+            rfq.quote_yes = quote
             tickers = [leg.leg_ticker for leg in rfq.legs]
-            missing = [t for t in tickers if t not in leg_cache]
-            if missing:
-                leg_cache.update(self.client.get_leg_prices(missing))
-            leg_prices = {t: leg_cache[t] for t in tickers if t in leg_cache}
+            leg_prices = fetch_legs(tickers)
             if len(leg_prices) < len(tickers):
                 log.debug("skipping %s: missing leg prices", rfq.rfq_id)
                 continue
@@ -91,5 +108,5 @@ class Scanner:
                 )
             )
         self.last_evaluations = evaluations
-        self.last_leg_prices = leg_cache
+        self.last_leg_prices = {t: v[0] for t, v in leg_cache.items()}
         return signals

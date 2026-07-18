@@ -206,7 +206,8 @@ class KalshiClient(MarketDataClient):
                 parsed = self._parse_rfq(raw)
                 if parsed is None:
                     continue
-                self._set_combo_quote(parsed)  # price the combo from its own market
+                # Discovery only: the combo is priced fresh in the scan loop via
+                # get_combo_quote, together with its legs (avoids stale skew).
                 rfqs.append(parsed)
                 if len(rfqs) >= cap:
                     return rfqs
@@ -219,7 +220,6 @@ class KalshiClient(MarketDataClient):
         """Enumerate combo markets from /markets. Each combo market carries its own
         price and legs, so no extra per-combo fetch is needed."""
         cap = self.cfg.polling.max_combos_per_scan
-        buying = self.cfg.strategy.direction != "sell_overpriced"
         series_list = self.cfg.discovery.series_tickers or [None]
         combos: list[ComboRFQ] = []
         for series in series_list:
@@ -236,7 +236,7 @@ class KalshiClient(MarketDataClient):
                     log.warning("market enumeration failed (%s): %s", series, exc)
                     break
                 for m in data.get("markets", []):
-                    combo = self._combo_from_market(m, buying)
+                    combo = self._combo_from_market(m)
                     if combo is not None:
                         combos.append(combo)
                         if len(combos) >= cap:
@@ -247,8 +247,12 @@ class KalshiClient(MarketDataClient):
         return combos
 
     @staticmethod
-    def _combo_from_market(m: dict, buying: bool) -> Optional[ComboRFQ]:
-        """Build a priced ComboRFQ from a combo-market object (has legs + price)."""
+    def _combo_from_market(m: dict) -> Optional[ComboRFQ]:
+        """Build a combo IDENTITY (legs + market_ticker) from a combo-market object.
+
+        The price is left unset; the scan loop reads it fresh via get_combo_quote so
+        the combo and its legs are captured together.
+        """
         legs_raw = m.get("mve_selected_legs")
         if not legs_raw:
             return None  # not a combo market
@@ -270,27 +274,25 @@ class KalshiClient(MarketDataClient):
             mve_collection_ticker=m.get("mve_collection_ticker", ""),
             market_ticker=m.get("ticker"),
             legs=legs,
-            quote_yes=_price_field(m, "yes_ask" if buying else "yes_bid"),
-            quote_no=_price_field(m, "no_ask" if buying else "no_bid"),
             size=1,
         )
 
-    def _set_combo_quote(self, rfq: ComboRFQ) -> None:
-        """Read the combo's tradeable price from its own market ticker.
+    def get_combo_quote(self, rfq: ComboRFQ) -> Optional[float]:
+        """Fresh executable combo price, read from its own market at eval time.
 
         Combos are real markets with a book; the executable price is the ask (when
-        buying) or the bid (when selling the combo YES).
+        buying) or the bid (when selling the combo YES). Fetched in the scan loop
+        right before the legs so the combo and its fair value are synchronized.
         """
         if not rfq.market_ticker:
-            return
+            return rfq.quote_yes
         try:
             m = self.get_market(rfq.market_ticker)
         except RuntimeError as exc:
             log.debug("combo market %s unavailable: %s", rfq.market_ticker, exc)
-            return
+            return None
         buying = self.cfg.strategy.direction != "sell_overpriced"
-        rfq.quote_yes = _price_field(m, "yes_ask" if buying else "yes_bid")
-        rfq.quote_no = _price_field(m, "no_ask" if buying else "no_bid")
+        return _price_field(m, "yes_ask" if buying else "yes_bid")
 
     @staticmethod
     def _parse_rfq(raw: dict) -> Optional[ComboRFQ]:

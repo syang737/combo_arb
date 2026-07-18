@@ -52,6 +52,7 @@ polling:
   interval_ms: 1000         # scanner poll cadence
   max_requests_per_sec: 8   # client-side rate limit
   max_combos_per_scan: 25   # cap combos priced per scan (each = 1 combo + N leg reads)
+  leg_cache_ttl_ms: 0       # 0 = always fetch legs fresh (no stale reuse); >0 = reuse window
 
 persistence:
   db_path: data/combo_arb.db
