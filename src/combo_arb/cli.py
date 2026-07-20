@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -25,8 +26,12 @@ _DEFAULT_CONFIG = "config/config.example.yaml"
 
 
 def _load_cfg(config: Optional[str]) -> AppConfig:
-    path = config or (_DEFAULT_CONFIG if Path(_DEFAULT_CONFIG).exists() else None)
-    return AppConfig.load(path)
+    """Resolve the config file: explicit --config, then $COMBO_ARB_CONFIG (used by
+    the container), then the bundled example, else built-in defaults."""
+    for candidate in (config, os.environ.get("COMBO_ARB_CONFIG"), _DEFAULT_CONFIG):
+        if candidate and Path(candidate).exists():
+            return AppConfig.load(candidate)
+    return AppConfig.load(None)
 
 
 def _require_live_credentials(cfg: AppConfig) -> None:
