@@ -85,6 +85,42 @@ Usable only if you restructure into a scheduled job (e.g. run one finite scan pe
 invocation on a cron) — a reasonable alternative, but a different shape than the
 continuous `run` loop.
 
+## 3b. Continuous builds → GHCR → `docker pull` (recommended)
+
+`.github/workflows/docker-publish.yml` runs the tests, builds the image, and pushes
+it to **GitHub Container Registry** on every push to `main` (and on manual
+dispatch). That replaces on-box building entirely — the instance just pulls.
+
+**One-time setup:**
+1. Push to `main` (or run the workflow from the Actions tab). It publishes
+   `ghcr.io/syang737/combo_arb:latest` (+ a `sha-<short>` tag).
+2. The image is **private** by default. Choose one:
+   - **Keep private** (recommended if the repo is private): create a GitHub
+     Personal Access Token with `read:packages`, then on the instance:
+     ```bash
+     echo "$GHCR_PAT" | docker login ghcr.io -u syang737 --password-stdin
+     ```
+   - **Make it public**: GitHub → your profile → Packages → `combo_arb` → Package
+     settings → Change visibility → Public. Then no login is needed. (Note: the
+     image contains your source code, so only do this if that's fine to expose.)
+
+**Redeploy on the box** becomes one command (pulls latest + recreates the container):
+```bash
+KALSHI_API_KEY_ID=fca0b293-06f5-410e-b81a-fb21f198ccdc ./scripts/redeploy.sh
+```
+…or by hand:
+```bash
+docker pull ghcr.io/syang737/combo_arb:latest
+docker rm -f combo-arb
+docker run -d --restart unless-stopped --name combo-arb \
+  -e KALSHI_API_KEY_ID=... -e KALSHI_PRIVATE_KEY_PATH=/secrets/kalshi.pem \
+  -v ~/combo_arb/secrets/kalshi.pem:/secrets/kalshi.pem:ro \
+  -v ~/combo_arb/data:/data \
+  -v ~/combo_arb/config/config.yaml:/app/config/config.yaml:ro \
+  ghcr.io/syang737/combo_arb:latest
+```
+No swap-thrashing build on the 512 MB box — the heavy lifting happens in CI.
+
 ## 4. Operating notes
 
 - **Rate limits:** `polling.max_requests_per_sec` and `polling.max_combos_per_scan`
