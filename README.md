@@ -107,6 +107,13 @@ A real order is sent only when **all three** hold:
 - **Auth:** RSA-PSS over `{ts}{METHOD}{path}`, headers
   `KALSHI-ACCESS-KEY/SIGNATURE/TIMESTAMP`.
 
+## Monitoring from Claude Code (MCP)
+
+A read-only MCP server (`combo-arb-mcp`) exposes the engine's data — PnL, flagged
+signals, near-misses, fills, positions — so you can monitor it conversationally in
+Claude Code. Install with `pip install -e ".[mcp]"`; setup and tools are in
+[MCP.md](MCP.md).
+
 ## Testing
 
 ```bash
