@@ -114,6 +114,13 @@ class SettlementSimConfig(BaseModel):
     seed: int = 42
 
 
+class SettlementConfig(BaseModel):
+    # How often (wall-clock seconds) to poll open trades' leg markets for real
+    # resolution. Throttled independently of polling.interval_ms since it costs
+    # one API call per distinct open leg ticker, on top of the scan budget.
+    check_interval_s: float = 30.0
+
+
 class Secrets(BaseSettings):
     """Loaded from environment / .env only."""
 
@@ -141,6 +148,7 @@ class AppConfig(BaseModel):
     polling: PollingConfig = Field(default_factory=PollingConfig)
     persistence: PersistenceConfig = Field(default_factory=PersistenceConfig)
     settlement_sim: SettlementSimConfig = Field(default_factory=SettlementSimConfig)
+    settlement: SettlementConfig = Field(default_factory=SettlementConfig)
 
     # Secrets are attached at load time, excluded from serialization.
     secrets: Secrets = Field(default_factory=Secrets, exclude=True)

@@ -8,11 +8,14 @@ for replay + telemetry and trivially migratable to a time-series DB later.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from pathlib import Path
 from typing import Optional
 
-from combo_arb.models import ArbSignal, ComboRFQ, Fill, LegPrice, Order, PnL, Position
+from combo_arb.models import ArbSignal, ComboRFQ, Fill, LegPrice, Order, PnL, Position, Side
+
+log = logging.getLogger(__name__)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS market_snapshots (
@@ -76,6 +79,18 @@ CREATE TABLE IF NOT EXISTS latency (
     ts REAL, stage TEXT, ms REAL
 );
 CREATE INDEX IF NOT EXISTS ix_lat_ts ON latency(ts);
+
+CREATE TABLE IF NOT EXISTS open_trades (
+    signal_ref TEXT PRIMARY KEY,           -- rfq_id of the originating signal
+    mve_collection_ticker TEXT,
+    legs_json TEXT,                        -- [{"leg_ticker":.., "side":"yes"|"no"}, ...]
+    opened_ts REAL,
+    expected_pnl REAL,                     -- Monte-Carlo estimate recorded at trade time
+    status TEXT DEFAULT 'open',            -- open | settled
+    settled_ts REAL,
+    realized_pnl REAL
+);
+CREATE INDEX IF NOT EXISTS ix_open_trades_status ON open_trades(status);
 """
 
 
@@ -158,6 +173,77 @@ class Database:
             "INSERT INTO pnl(ts, realized, unrealized, equity) VALUES (?,?,?,?)",
             (pnl.timestamp, pnl.realized, pnl.unrealized, pnl.equity),
         )
+
+    def insert_open_trade(
+        self,
+        signal_ref: str,
+        mve_collection_ticker: str,
+        legs_json: str,
+        opened_ts: float,
+        expected_pnl: float,
+    ) -> None:
+        # signal_ref (an RFQ id) is expected to be unique per trade; OR IGNORE is a
+        # defensive fallback (not a real-world path -- rfq_ids don't recur) so a
+        # stray duplicate can't crash the whole run.
+        cur = self.conn.execute(
+            "INSERT OR IGNORE INTO open_trades(signal_ref, mve_collection_ticker, legs_json, "
+            "opened_ts, expected_pnl, status) VALUES (?,?,?,?,?,'open')",
+            (signal_ref, mve_collection_ticker, legs_json, opened_ts, expected_pnl),
+        )
+        if cur.rowcount == 0:
+            log.warning(
+                "open_trades already has a row for signal_ref=%s; not overwriting "
+                "(this trade's settlement won't be tracked)", signal_ref,
+            )
+
+    def is_trade_open(self, signal_ref: str) -> bool:
+        row = self.conn.execute(
+            "SELECT 1 FROM open_trades WHERE signal_ref=? AND status='open'", (signal_ref,)
+        ).fetchone()
+        return row is not None
+
+    def get_open_trades(self) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT * FROM open_trades WHERE status='open'"
+        ).fetchall()
+
+    def count_open_trades(self) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM open_trades WHERE status='open'"
+        ).fetchone()
+        return row["n"]
+
+    def get_trade_fills(
+        self, signal_ref: str, combo_ticker: str
+    ) -> tuple[Optional[Fill], list[Fill]]:
+        """Reconstruct a trade's combo + hedge fills from the append-only orders/fills
+        log (joined on order_id -> signal_ref, since fills don't carry it directly)."""
+        rows = self.conn.execute(
+            "SELECT f.* FROM fills f JOIN orders o ON o.order_id = f.order_id "
+            "WHERE o.signal_ref = ?",
+            (signal_ref,),
+        ).fetchall()
+        fills = [
+            Fill(
+                order_id=r["order_id"], instrument=r["instrument"], side=Side(r["side"]),
+                action=r["action"], price=r["price"], qty=r["qty"], fee=r["fee"],
+                timestamp=r["ts"],
+            )
+            for r in rows
+        ]
+        combo_fill = next((f for f in fills if f.instrument == combo_ticker), None)
+        hedge_fills = [f for f in fills if f.instrument != combo_ticker]
+        return combo_fill, hedge_fills
+
+    def settle_open_trade(self, signal_ref: str, settled_ts: float, realized_pnl: float) -> None:
+        self.conn.execute(
+            "UPDATE open_trades SET status='settled', settled_ts=?, realized_pnl=? "
+            "WHERE signal_ref=?",
+            (settled_ts, realized_pnl, signal_ref),
+        )
+
+    def get_positions(self) -> list[sqlite3.Row]:
+        return self.conn.execute("SELECT * FROM positions").fetchall()
 
     def insert_latency(self, stage: str, ms: float, ts: Optional[float] = None) -> None:
         import time
