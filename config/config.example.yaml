@@ -41,6 +41,12 @@ execution:
   live_enabled: false       # HARD GUARD. Must be true (+ mode=live + CONFIRM_LIVE_TRADING=YES) to send real orders
   fill_model: taker_cross   # taker_cross | mid | depth_prob  (paper mode)
   combo_fill_price: yes_bid # price at which we (as maker) sell the overpriced combo YES
+  # live-only:
+  time_in_force: ioc        # ioc = fill-now-or-cancel (limits legging exposure)
+  fill_poll_timeout_s: 5.0  # seconds to poll /portfolio/fills for reconciliation
+  unwind_on_partial: true   # flatten a partially-filled hedged set back to zero
+  require_balance_check: true
+  max_trades_per_run: 0     # 0 = unlimited; set e.g. 1 for the first demo/live trade
 
 discovery:
   source: rfq               # rfq (open RFQs only) | markets (enumerate all combo markets)

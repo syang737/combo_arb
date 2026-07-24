@@ -59,6 +59,7 @@ def simulate_fill(order: Order, leg_prices: dict[str, LegPrice], cfg: AppConfig)
     return Fill(
         order_id=order.order_id,
         instrument=order.instrument,
+        instrument_type=order.instrument_type,
         side=order.side,
         action=order.action,
         price=price,

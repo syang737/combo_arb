@@ -67,6 +67,7 @@ class Controller:
         self.risk = RiskManager(cfg)
         self.engine = engine or self._default_engine()
         self._cum_equity = 0.0
+        self._executed_count = 0  # trades executed this process (for max_trades_per_run)
 
     def _default_engine(self) -> ExecutionEngine:
         if self.cfg.mode == Mode.LIVE:
@@ -122,14 +123,27 @@ class Controller:
             log.info("signal-only %s: %s", sig.rfq_id, decision.reason)
             return TradeOutcome(sig, False, decision.reason)
 
+        cap = self.cfg.execution.max_trades_per_run
+        if cap and self._executed_count >= cap:
+            sig.action = SignalAction.SIGNAL_ONLY
+            self._persist_signal(sig, leg_probs)
+            log.info("max_trades_per_run (%d) reached; signal-only %s", cap, sig.rfq_id)
+            return TradeOutcome(sig, False, "max_trades_per_run reached")
+
         sig.action = SignalAction.HEDGE_VIA_LEGS
         self._persist_signal(sig, leg_probs)
 
         with self.metrics.timer("execute"):
             fills = self.engine.execute(decision.all_orders, sig.leg_prices)
 
-        combo_fills = [f for f in fills if f.instrument == sig.mve_collection_ticker]
-        hedge_fills = [f for f in fills if f.instrument != sig.mve_collection_ticker]
+        # The combo trades on its market_ticker (live) or the collection ticker (mock),
+        # whichever the risk layer built the combo order with.
+        combo_instrument = (
+            decision.combo_order.instrument if decision.combo_order
+            else (sig.market_ticker or sig.mve_collection_ticker)
+        )
+        combo_fills = [f for f in fills if f.instrument == combo_instrument]
+        hedge_fills = [f for f in fills if f.instrument != combo_instrument]
         if not combo_fills:
             log.warning("no combo fill for %s; skipping PnL", sig.rfq_id)
             return TradeOutcome(sig, False, "combo not filled")
@@ -140,6 +154,7 @@ class Controller:
         for f in fills:
             self.risk.register_fill(f)
         self.risk.mark_signal_opened()
+        self._executed_count += 1
         self.metrics.incr("executed")
 
         pnl_stats = simulate_pnl(

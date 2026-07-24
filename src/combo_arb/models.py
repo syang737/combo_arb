@@ -93,6 +93,7 @@ class ArbSignal(BaseModel):
 
     rfq_id: str
     mve_collection_ticker: str
+    market_ticker: Optional[str] = None    # the tradeable combo market (live order target)
     legs: list[ComboLeg]
     leg_prices: dict[str, LegPrice]        # keyed by leg_ticker, snapshot used for pricing
     combo_quote_yes: float
@@ -152,6 +153,7 @@ class Order(BaseModel):
 class Fill(BaseModel):
     order_id: str
     instrument: str
+    instrument_type: InstrumentType = InstrumentType.LEG
     side: Side
     action: str
     price: float

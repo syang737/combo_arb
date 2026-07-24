@@ -92,7 +92,10 @@ combo-arb scan --source live
 
 A real order is sent only when **all three** hold:
 `execution.live_enabled: true` **and** `mode: live` **and** env
-`CONFIRM_LIVE_TRADING=YES`. Otherwise the live engine refuses and raises.
+`CONFIRM_LIVE_TRADING=YES`. Otherwise the live engine refuses and raises. The live
+path places the combo + hedge legs (IOC), reconciles real fills/fees, and unwinds a
+partially-filled hedge back to flat. **Before trading real money, follow the staged
+runbook in [LIVE.md](LIVE.md)** (demo-first, order-schema confirmation, tiny caps).
 
 ## Kalshi API notes
 

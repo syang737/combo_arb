@@ -96,6 +96,7 @@ class Scanner:
                 ArbSignal(
                     rfq_id=rfq.rfq_id,
                     mve_collection_ticker=rfq.mve_collection_ticker,
+                    market_ticker=rfq.market_ticker,
                     legs=rfq.legs,
                     leg_prices=leg_prices,
                     combo_quote_yes=rfq.quote_yes,

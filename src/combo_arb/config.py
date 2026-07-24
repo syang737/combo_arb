@@ -79,8 +79,14 @@ class RiskConfig(BaseModel):
 
 class ExecutionConfig(BaseModel):
     live_enabled: bool = False
-    fill_model: str = "taker_cross"     # taker_cross | mid | depth_prob
-    combo_fill_price: str = "yes_bid"   # yes_bid | quote_yes
+    fill_model: str = "taker_cross"     # taker_cross | mid | depth_prob (paper)
+    combo_fill_price: str = "yes_bid"   # yes_bid | quote_yes (paper)
+    # -- live-only knobs --
+    time_in_force: str = "ioc"          # ioc = fill-now-or-cancel (limits legging exposure)
+    fill_poll_timeout_s: float = 5.0    # how long to poll /portfolio/fills for reconciliation
+    unwind_on_partial: bool = True      # flatten a partially-filled hedged set back to zero
+    require_balance_check: bool = True  # verify account balance before placing live orders
+    max_trades_per_run: int = 0         # 0 = unlimited; >0 caps trades per process (safety)
 
 
 class DiscoveryConfig(BaseModel):

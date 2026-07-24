@@ -333,5 +333,19 @@ class KalshiClient(MarketDataClient):
         """Raw order entry. The live engine is responsible for the safety guards."""
         return self._post("/portfolio/orders", json=order)
 
+    def cancel_order(self, order_id: str) -> dict:
+        return self._request("DELETE", f"/portfolio/orders/{order_id}")
+
+    def get_fills(
+        self, order_id: Optional[str] = None, ticker: Optional[str] = None, limit: int = 100
+    ) -> list[dict]:
+        """Executed fills (for reconciling real fill qty/price/fee)."""
+        params: dict = {"limit": limit}
+        if order_id:
+            params["order_id"] = order_id
+        if ticker:
+            params["ticker"] = ticker
+        return self._get("/portfolio/fills", params=params).get("fills", [])
+
     def close(self) -> None:
         self._http.close()

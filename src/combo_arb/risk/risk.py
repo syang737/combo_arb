@@ -96,7 +96,9 @@ class DeltaHedgeModel:
     ) -> tuple[Order, list[Order]]:
         sell_combo = cfg.strategy.direction == "sell_overpriced"
         combo_order = Order(
-            instrument=signal.mve_collection_ticker,
+            # The tradeable combo market (live); fall back to the collection ticker
+            # for the offline mock, which has no market_ticker.
+            instrument=signal.market_ticker or signal.mve_collection_ticker,
             instrument_type=InstrumentType.COMBO,
             side=Side.YES,
             action="sell" if sell_combo else "buy",
@@ -204,14 +206,7 @@ class RiskManager:
         """Update positions + exposure from a fill (called by the controller)."""
         pos = self.positions.get(fill.instrument)
         if pos is None:
-            pos = Position(
-                instrument=fill.instrument,
-                instrument_type=(
-                    InstrumentType.COMBO
-                    if fill.instrument.startswith(("COMBO", "MVE"))
-                    else InstrumentType.LEG
-                ),
-            )
+            pos = Position(instrument=fill.instrument, instrument_type=fill.instrument_type)
             self.positions[fill.instrument] = pos
         signed = fill.qty if fill.action == "buy" else -fill.qty
         new_net = pos.net_qty + signed
