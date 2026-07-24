@@ -12,6 +12,7 @@ Rate limits, the kill switch, and signal-only downgrades are enforced here.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -22,7 +23,8 @@ from combo_arb.execution.base import ExecutionEngine
 from combo_arb.execution.paper import PaperExecutionEngine
 from combo_arb.execution.settlement import HedgedTrade, immediate_cash, simulate_pnl
 from combo_arb.kalshi.base import MarketDataClient
-from combo_arb.models import ArbSignal, PnL, SignalAction
+from combo_arb.models import ArbSignal, InstrumentType, PnL, Position, SignalAction
+from combo_arb.orchestration.settle import sweep_settlements
 from combo_arb.persistence.db import Database
 from combo_arb.pricing.model import implied_prob
 from combo_arb.risk.risk import RiskManager
@@ -68,6 +70,21 @@ class Controller:
         self.engine = engine or self._default_engine()
         self._cum_equity = 0.0
         self._executed_count = 0  # trades executed this process (for max_trades_per_run)
+        self._last_settlement_check = 0.0
+        if self.db is not None:
+            # Restore risk state so a process restart doesn't forget what's still
+            # outstanding (previously both reset to empty on every restart).
+            self.risk.hydrate_open_signals(self.db.count_open_trades())
+            self.risk.hydrate_positions([
+                Position(
+                    instrument=r["instrument"],
+                    instrument_type=InstrumentType(r["instrument_type"]),
+                    net_qty=r["net_qty"],
+                    avg_price=r["avg_price"],
+                    updated_ts=r["updated_ts"],
+                )
+                for r in self.db.get_positions()
+            ])
 
     def _default_engine(self) -> ExecutionEngine:
         if self.cfg.mode == Mode.LIVE:
@@ -80,6 +97,8 @@ class Controller:
         return PaperExecutionEngine(self.cfg)
 
     def run_once(self) -> CycleResult:
+        self._maybe_sweep_settlements()
+
         result = CycleResult()
         with self.metrics.timer("scan"):
             signals = self.scanner.scan()
@@ -108,7 +127,38 @@ class Controller:
             self.db.commit()
         return result
 
+    def _maybe_sweep_settlements(self) -> None:
+        """Check open trades' legs for real resolution, on a throttle independent
+        of the scan cadence (each check costs one API call per open leg ticker)."""
+        if self.db is None:
+            return
+        now = time.monotonic()
+        if now - self._last_settlement_check < self.cfg.settlement.check_interval_s:
+            return
+        self._last_settlement_check = now
+
+        for t in sweep_settlements(self.client, self.db):
+            self.risk.mark_signal_closed()
+            # Correct cumulative equity: swap the trade-open Monte-Carlo estimate for
+            # the now-known actual outcome.
+            self._cum_equity += t.realized_pnl - t.expected_pnl
+            self.db.insert_pnl(PnL(
+                realized=t.realized_pnl,
+                unrealized=-t.expected_pnl,
+                equity=self._cum_equity,
+            ))
+        self.db.commit()
+
     def _handle_signal(self, sig: ArbSignal) -> TradeOutcome:
+        if self.db is not None and self.db.is_trade_open(sig.rfq_id):
+            # Same RFQ still visible on a later scan while its prior trade hasn't
+            # settled yet -- don't re-trade it (open_trades makes this checkable;
+            # previously there was no record of "already traded" at all).
+            sig.action = SignalAction.SKIP
+            self._persist_signal(sig, {})
+            self.metrics.incr("already_open")
+            return TradeOutcome(sig, False, "already open (awaiting settlement)")
+
         leg_probs = {
             leg.leg_ticker: implied_prob(sig.leg_prices[leg.leg_ticker], self.cfg.pricing)
             for leg in sig.legs
@@ -191,6 +241,16 @@ class Controller:
             self.db.insert_fill(f)
         for pos in self.risk.positions.values():
             self.db.upsert_position(pos)
+
+        self.db.insert_open_trade(
+            signal_ref=sig.rfq_id,
+            mve_collection_ticker=sig.mve_collection_ticker,
+            legs_json=json.dumps([
+                {"leg_ticker": leg.leg_ticker, "side": leg.side.value} for leg in sig.legs
+            ]),
+            opened_ts=sig.timestamp,
+            expected_pnl=pnl_stats["expected_pnl"],
+        )
 
         realized = immediate_cash(trade)
         unrealized = pnl_stats["expected_pnl"] - realized

@@ -20,7 +20,7 @@ import random
 import statistics
 from dataclasses import dataclass, field
 
-from combo_arb.models import ArbSignal, Fill, Side
+from combo_arb.models import ArbSignal, ComboLeg, Fill, Side
 
 
 @dataclass
@@ -55,21 +55,40 @@ def immediate_cash(trade: HedgedTrade) -> float:
     return cash
 
 
-def _scenario_pnl(trade: HedgedTrade, outcomes: dict[str, bool]) -> float:
-    sig = trade.signal
-    # Combo resolves YES iff every leg resolves in the combo's favour.
+def _resolve_combo(legs: list[ComboLeg], outcomes: dict[str, bool]) -> bool:
+    """Combo resolves YES iff every selected leg resolves in the combo's favour."""
     combo_yes = True
-    for leg in sig.legs:
+    for leg in legs:
         underlying_yes = outcomes[leg.leg_ticker]
         leg_ok = underlying_yes if leg.side == Side.YES else (not underlying_yes)
         combo_yes = combo_yes and leg_ok
+    return combo_yes
 
-    pnl = _fill_settlement_pnl(trade.combo_fill, combo_yes)
-    for hf in trade.hedge_fills:
+
+def _trade_pnl(
+    legs: list[ComboLeg], combo_fill: Fill, hedge_fills: list[Fill], outcomes: dict[str, bool]
+) -> float:
+    pnl = _fill_settlement_pnl(combo_fill, _resolve_combo(legs, outcomes))
+    for hf in hedge_fills:
         underlying_yes = outcomes[hf.instrument]
         resolves = underlying_yes if hf.side == Side.YES else (not underlying_yes)
         pnl += _fill_settlement_pnl(hf, resolves)
     return pnl
+
+
+def _scenario_pnl(trade: HedgedTrade, outcomes: dict[str, bool]) -> float:
+    return _trade_pnl(trade.signal.legs, trade.combo_fill, trade.hedge_fills, outcomes)
+
+
+def settle_pnl(
+    legs: list[ComboLeg], combo_fill: Fill, hedge_fills: list[Fill], outcomes: dict[str, bool]
+) -> float:
+    """Realized PnL from ACTUAL settlement outcomes (not a Monte-Carlo draw).
+
+    Same AND-rule math as the trade-time estimate in :func:`simulate_pnl`, but driven
+    by each leg's real resolved result once its market has actually settled.
+    """
+    return _trade_pnl(legs, combo_fill, hedge_fills, outcomes)
 
 
 def simulate_pnl(

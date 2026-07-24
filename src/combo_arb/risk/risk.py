@@ -223,3 +223,16 @@ class RiskManager:
 
     def mark_signal_opened(self) -> None:
         self.open_signals += 1
+
+    def mark_signal_closed(self) -> None:
+        """Free a trade's risk slot once it's actually settled (see settle sweep)."""
+        self.open_signals = max(0, self.open_signals - 1)
+
+    def hydrate_open_signals(self, n: int) -> None:
+        """Restore the count of still-open trades on startup, so a process restart
+        doesn't silently forget about risk that's still outstanding."""
+        self.open_signals = max(0, n)
+
+    def hydrate_positions(self, positions: list[Position]) -> None:
+        for pos in positions:
+            self.positions[pos.instrument] = pos
