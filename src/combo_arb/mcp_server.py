@@ -63,6 +63,15 @@ def open_positions() -> list:
 
 
 @mcp.tool()
+def open_trades_summary(limit: int = 15) -> dict:
+    """Settlement state: counts of open vs settled vs expired trades, realized PnL
+    from settled trades, the oldest still-open trade, and recent settlements. Use
+    this to confirm settlements are flowing — if 'open' is pinned at the risk cap
+    (max_open_signals) with nothing settling, the engine is wedged."""
+    return queries.open_trades_summary(_db(), limit)
+
+
+@mcp.tool()
 def evaluation_history(collection_ticker: str, limit: int = 50) -> list:
     """Quote / fair / gap history over time for a single combo collection ticker."""
     return queries.evaluation_history(_db(), collection_ticker, limit)

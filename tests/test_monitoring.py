@@ -90,6 +90,27 @@ def test_evaluation_history(populated_db):
     assert len(hist) == 1 and hist[0]["flagged"] == 1
 
 
+def test_open_trades_summary(tmp_path):
+    path = str(tmp_path / "ot.db")
+    db = Database(path)
+    db.insert_open_trade(signal_ref="t-open", mve_collection_ticker="C1",
+                         legs_json="[]", opened_ts=100.0, expected_pnl=1.0)
+    db.insert_open_trade(signal_ref="t-set", mve_collection_ticker="C2",
+                         legs_json="[]", opened_ts=50.0, expected_pnl=1.0)
+    db.settle_open_trade("t-set", settled_ts=200.0, realized_pnl=2.5)
+    db.insert_open_trade(signal_ref="t-exp", mve_collection_ticker="C3",
+                         legs_json="[]", opened_ts=60.0, expected_pnl=1.0)
+    db.expire_open_trade("t-exp", settled_ts=210.0)
+    db.commit()
+    db.close()
+
+    s = queries.open_trades_summary(path)
+    assert s["open"] == 1 and s["settled"] == 1 and s["expired"] == 1
+    assert s["settled_realized_pnl"] == pytest.approx(2.5)
+    assert s["oldest_open_signal_ref"] == "t-open"
+    assert len(s["recent_settlements"]) == 2
+
+
 def test_missing_db_returns_error(tmp_path):
     missing = str(tmp_path / "nope.db")
     assert "error" in queries.db_status(missing)

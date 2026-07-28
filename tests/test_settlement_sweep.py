@@ -9,6 +9,7 @@ silently halting trading.
 from __future__ import annotations
 
 import json
+import time
 
 from combo_arb.models import Fill, InstrumentType, Order, OrderStatus, Side
 from combo_arb.orchestration.settle import _market_result, sweep_settlements
@@ -38,16 +39,22 @@ def test_unresolved_or_void_returns_none():
 
 # -- sweep_settlements: a finalized trade actually closes ----------------------
 class _FakeClient:
-    """Minimal market-data client: returns a canned status/result per ticker."""
+    """Minimal market-data client: returns a canned status/result per ticker.
+    A ticker mapped to an Exception raises it (simulates a delisted/errored leg)."""
 
-    def __init__(self, markets: dict[str, dict]):
+    def __init__(self, markets: dict[str, object]):
         self._markets = markets
 
     def get_market(self, ticker: str) -> dict:
-        return self._markets[ticker]
+        m = self._markets[ticker]
+        if isinstance(m, Exception):
+            raise m
+        return m
 
 
-def _seed_open_trade(db: Database, signal_ref: str, combo_ticker: str) -> None:
+def _seed_open_trade(
+    db: Database, signal_ref: str, combo_ticker: str, opened_ts: float = 0.0
+) -> None:
     """Persist one hedged trade (combo buy + two leg hedges) as an open trade."""
     orders = [
         Order(instrument=combo_ticker, instrument_type=InstrumentType.COMBO, side=Side.YES,
@@ -74,7 +81,7 @@ def _seed_open_trade(db: Database, signal_ref: str, combo_ticker: str) -> None:
         signal_ref=signal_ref,
         mve_collection_ticker=combo_ticker,
         legs_json=json.dumps([{"leg_ticker": "A", "side": "yes"}, {"leg_ticker": "B", "side": "yes"}]),
-        opened_ts=0.0,
+        opened_ts=opened_ts,
         expected_pnl=1.23,
     )
     db.commit()
@@ -111,3 +118,53 @@ def test_unresolved_leg_keeps_trade_open():
     assert settled == []
     assert db.is_trade_open("t2") is True
     assert db.count_open_trades() == 1
+
+
+# -- terminal handling: an old trade stuck on a delisted (un-fetchable) leg -----
+def test_old_trade_with_delisted_leg_expires():
+    db = Database(":memory:")
+    _seed_open_trade(db, "t3", "COMBO_AB", opened_ts=0.0)  # opened at epoch -> very old
+
+    client = _FakeClient({
+        "A": {"status": "finalized", "result": "yes"},
+        "B": RuntimeError("Kalshi request failed: 500 server error"),  # delisted -> errors
+    })
+    settled = sweep_settlements(client, db, max_open_age_s=3600)
+
+    assert len(settled) == 1 and settled[0].expired is True
+    assert settled[0].realized_pnl == 0.0
+    assert db.is_trade_open("t3") is False
+    assert db.count_open_trades() == 0
+    status = db.conn.execute(
+        "SELECT status, realized_pnl FROM open_trades WHERE signal_ref='t3'"
+    ).fetchone()
+    assert status["status"] == "expired" and status["realized_pnl"] is None
+
+
+def test_recent_trade_with_errored_leg_stays_open():
+    """A transient fetch error within the grace window must NOT expire the trade."""
+    db = Database(":memory:")
+    _seed_open_trade(db, "t4", "COMBO_AB", opened_ts=time.time())  # just opened
+
+    client = _FakeClient({
+        "A": {"status": "finalized", "result": "yes"},
+        "B": RuntimeError("Kalshi request failed: 500 server error"),
+    })
+    settled = sweep_settlements(client, db, max_open_age_s=3600)
+
+    assert settled == []
+    assert db.is_trade_open("t4") is True
+
+
+def test_expiry_disabled_by_default_keeps_trade_open():
+    db = Database(":memory:")
+    _seed_open_trade(db, "t5", "COMBO_AB", opened_ts=0.0)
+
+    client = _FakeClient({
+        "A": {"status": "finalized", "result": "yes"},
+        "B": RuntimeError("boom"),
+    })
+    settled = sweep_settlements(client, db)  # max_open_age_s defaults to 0 -> disabled
+
+    assert settled == []
+    assert db.is_trade_open("t5") is True

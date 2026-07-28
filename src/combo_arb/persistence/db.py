@@ -242,6 +242,16 @@ class Database:
             (settled_ts, realized_pnl, signal_ref),
         )
 
+    def expire_open_trade(self, signal_ref: str, settled_ts: float) -> None:
+        """Terminally close a trade whose leg can no longer be fetched (delisted).
+        Marked 'expired' (distinct from 'settled') with unknown realized PnL so it
+        stops holding a risk slot and stays visible for manual review."""
+        self.conn.execute(
+            "UPDATE open_trades SET status='expired', settled_ts=?, realized_pnl=NULL "
+            "WHERE signal_ref=?",
+            (settled_ts, signal_ref),
+        )
+
     def get_positions(self) -> list[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM positions").fetchall()
 

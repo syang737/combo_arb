@@ -137,10 +137,12 @@ class Controller:
             return
         self._last_settlement_check = now
 
-        for t in sweep_settlements(self.client, self.db):
+        for t in sweep_settlements(
+            self.client, self.db, max_open_age_s=self.cfg.settlement.max_open_age_s
+        ):
             self.risk.mark_signal_closed()
             # Correct cumulative equity: swap the trade-open Monte-Carlo estimate for
-            # the now-known actual outcome.
+            # the now-known actual outcome (0 for an expired/un-fetchable trade).
             self._cum_equity += t.realized_pnl - t.expected_pnl
             self.db.insert_pnl(PnL(
                 realized=t.realized_pnl,

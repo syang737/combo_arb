@@ -125,6 +125,13 @@ class SettlementConfig(BaseModel):
     # resolution. Throttled independently of polling.interval_ms since it costs
     # one API call per distinct open leg ticker, on top of the scan budget.
     check_interval_s: float = 30.0
+    # Terminal handling for a trade whose leg can never be fetched (delisted /
+    # rolled-off market that returns errors instead of a settled payload). A trade
+    # older than this (wall-clock seconds) that still has an *un-fetchable* leg is
+    # marked "expired" so it stops holding a risk slot forever. Only errored legs
+    # trigger this -- a leg that fetches fine but isn't resolved yet (far-future
+    # game) keeps the trade open normally. 0 disables. Default 24h.
+    max_open_age_s: float = 86400.0
 
 
 class Secrets(BaseSettings):

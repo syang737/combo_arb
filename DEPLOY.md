@@ -104,10 +104,23 @@ dispatch). That replaces on-box building entirely — the instance just pulls.
      settings → Change visibility → Public. Then no login is needed. (Note: the
      image contains your source code, so only do this if that's fine to expose.)
 
-**Redeploy on the box** becomes one command (pulls latest + recreates the container):
+**Store credentials once** so you don't re-paste them each redeploy. Create
+`~/combo_arb/.env` (kept out of the image by `.dockerignore`):
 ```bash
-KALSHI_API_KEY_ID=fca0b293-06f5-410e-b81a-fb21f198ccdc ./scripts/redeploy.sh
+cat > ~/combo_arb/.env <<'EOF'
+KALSHI_API_KEY_ID=<your-key-id>
+# CONFIRM_LIVE_TRADING=YES   # only when you deliberately go live
+EOF
+chmod 600 ~/combo_arb/.env
 ```
+
+**Redeploy on the box** is then just one command (pulls latest, recreates the
+container, and prints the running commit SHA):
+```bash
+./scripts/redeploy.sh
+```
+`redeploy.sh` reads `$BASE/.env` via `docker --env-file` (a one-off inline
+`KALSHI_API_KEY_ID=... ./scripts/redeploy.sh` still works and takes precedence).
 …or by hand:
 ```bash
 docker pull ghcr.io/syang737/combo_arb:latest

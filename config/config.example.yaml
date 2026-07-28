@@ -66,3 +66,10 @@ persistence:
 settlement_sim:
   n_scenarios: 2000         # Monte-Carlo draws for paper PnL realization
   seed: 42
+
+settlement:
+  check_interval_s: 30.0    # how often to poll open trades' legs for real resolution
+  # A trade older than this with an un-fetchable (delisted/rolled-off) leg is marked
+  # "expired" so it stops holding a risk slot forever. Only errored legs trigger it;
+  # a leg that fetches fine but isn't resolved yet keeps the trade open. 0 disables.
+  max_open_age_s: 86400.0   # 24h

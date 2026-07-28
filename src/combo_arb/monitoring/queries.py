@@ -16,7 +16,7 @@ from typing import Any, Optional
 _DEFAULT_DB = "data/combo_arb.db"
 _TABLES = (
     "market_snapshots", "combo_rfqs", "combo_evaluations", "arb_signals",
-    "orders", "fills", "positions", "pnl", "latency",
+    "orders", "fills", "positions", "pnl", "latency", "open_trades",
 )
 
 
@@ -168,6 +168,51 @@ def open_positions(path: str) -> list[dict]:
         for r in rows:
             r["updated_iso"] = _iso(r["updated_ts"])
         return rows
+    finally:
+        conn.close()
+
+
+def open_trades_summary(path: str, limit: int = 15) -> dict:
+    """Settlement state: how many trades are open vs settled/expired, realized PnL
+    from settled ones, the oldest still-open trade, and recent settlements.
+
+    The single best view of whether settlements are flowing: if ``open`` stays pinned
+    at ``max_open_signals`` with nothing settling, the engine is wedged."""
+    conn = _connect_ro(path)
+    if conn is None:
+        return _missing(path)
+    try:
+        try:
+            by_status = {
+                r["status"]: r["n"]
+                for r in conn.execute(
+                    "SELECT status, COUNT(*) n FROM open_trades GROUP BY status"
+                ).fetchall()
+            }
+        except sqlite3.OperationalError:
+            return {"error": "open_trades table not present yet (engine predates settlement tracking)"}
+        realized = conn.execute(
+            "SELECT COALESCE(SUM(realized_pnl),0) r FROM open_trades WHERE status='settled'"
+        ).fetchone()["r"]
+        oldest = conn.execute(
+            "SELECT signal_ref, opened_ts FROM open_trades WHERE status='open' "
+            "ORDER BY opened_ts ASC LIMIT 1"
+        ).fetchone()
+        recent = _rows(conn,
+            "SELECT signal_ref, mve_collection_ticker, status, settled_ts, realized_pnl "
+            "FROM open_trades WHERE status IN ('settled','expired') "
+            "ORDER BY settled_ts DESC LIMIT ?", (limit,))
+        for r in recent:
+            r["settled_iso"] = _iso(r["settled_ts"])
+        return {
+            "open": by_status.get("open", 0),
+            "settled": by_status.get("settled", 0),
+            "expired": by_status.get("expired", 0),
+            "settled_realized_pnl": round(realized, 4),
+            "oldest_open_signal_ref": oldest["signal_ref"] if oldest else None,
+            "oldest_open_iso": _iso(oldest["opened_ts"]) if oldest else None,
+            "recent_settlements": recent,
+        }
     finally:
         conn.close()
 
