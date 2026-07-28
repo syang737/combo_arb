@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>combo-arb dashboard</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header>
+    <h1>combo-arb <span class="muted">analytics</span></h1>
+    <div id="statusbar" class="statusbar">
+      <span class="pill" id="engine-pill">connecting…</span>
+      <span id="db-meta" class="muted"></span>
+      <label class="muted auto">
+        <input type="checkbox" id="autorefresh" checked> auto-refresh
+      </label>
+      <button id="refresh-btn">refresh</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="card span-2">
+      <div class="card-head"><h2>PnL</h2><span id="pnl-asof" class="muted"></span></div>
+      <div class="tiles" id="pnl-tiles"></div>
+      <div class="chart-wrap"><svg id="equity-chart" preserveAspectRatio="none"></svg></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Open trades</h2><span id="ot-oldest" class="muted"></span></div>
+      <div class="tiles" id="ot-tiles"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Positions</h2></div>
+      <div class="table-wrap"><table id="positions-tbl"></table></div>
+    </section>
+
+    <section class="card span-2">
+      <div class="card-head"><h2>Open trades (awaiting settlement)</h2></div>
+      <div class="table-wrap"><table id="opentrades-tbl"></table></div>
+    </section>
+
+    <section class="card span-2">
+      <div class="card-head"><h2>Trade history</h2><span class="muted">settled / expired</span></div>
+      <div class="table-wrap"><table id="trades-tbl"></table></div>
+    </section>
+
+    <section class="card span-2">
+      <div class="card-head"><h2>Arb signals</h2><span class="muted">flagged</span></div>
+      <div class="table-wrap"><table id="signals-tbl"></table></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Recent fills</h2></div>
+      <div class="table-wrap"><table id="fills-tbl"></table></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Near misses</h2><span class="muted">closest to an edge</span></div>
+      <div class="table-wrap"><table id="nearmiss-tbl"></table></div>
+    </section>
+  </main>
+
+  <footer class="muted">
+    read-only · reads <code id="db-path"></code> · <span id="last-refresh"></span>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -156,6 +156,65 @@ def recent_fills(path: str, limit: int = 20) -> list[dict]:
         conn.close()
 
 
+def pnl_series(path: str, limit: int = 500) -> list[dict]:
+    """Equity/PnL points over time (ascending) for the equity curve. Returns at most
+    ``limit`` most-recent points, oldest first."""
+    conn = _connect_ro(path)
+    if conn is None:
+        return [_missing(path)]
+    try:
+        rows = _rows(conn,
+            "SELECT ts, realized, unrealized, equity FROM "
+            "(SELECT ts, realized, unrealized, equity FROM pnl ORDER BY ts DESC LIMIT ?) "
+            "ORDER BY ts ASC", (limit,))
+        for r in rows:
+            r["ts_iso"] = _iso(r["ts"])
+        return rows
+    finally:
+        conn.close()
+
+
+def open_trades_list(path: str, limit: int = 50) -> list[dict]:
+    """Currently-open trades (oldest first) awaiting settlement."""
+    conn = _connect_ro(path)
+    if conn is None:
+        return [_missing(path)]
+    try:
+        try:
+            rows = _rows(conn,
+                "SELECT signal_ref, mve_collection_ticker, opened_ts, expected_pnl "
+                "FROM open_trades WHERE status='open' ORDER BY opened_ts ASC LIMIT ?", (limit,))
+        except sqlite3.OperationalError:
+            return []  # table predates settlement tracking
+        for r in rows:
+            r["opened_iso"] = _iso(r["opened_ts"])
+        return rows
+    finally:
+        conn.close()
+
+
+def recent_trades(path: str, limit: int = 50) -> list[dict]:
+    """Trade history: settled + expired trades, most recently closed first, with the
+    realized PnL and the trade-time Monte-Carlo estimate for comparison."""
+    conn = _connect_ro(path)
+    if conn is None:
+        return [_missing(path)]
+    try:
+        try:
+            rows = _rows(conn,
+                "SELECT signal_ref, mve_collection_ticker, status, opened_ts, settled_ts, "
+                "expected_pnl, realized_pnl FROM open_trades WHERE status IN ('settled','expired') "
+                "ORDER BY settled_ts DESC LIMIT ?", (limit,))
+        except sqlite3.OperationalError:
+            return []
+        for r in rows:
+            r["opened_iso"] = _iso(r["opened_ts"])
+            r["settled_iso"] = _iso(r["settled_ts"])
+        return rows
+    finally:
+        conn.close()
+
+
 def open_positions(path: str) -> list[dict]:
     """Positions with non-zero net quantity."""
     conn = _connect_ro(path)

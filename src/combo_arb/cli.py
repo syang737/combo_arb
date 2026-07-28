@@ -170,6 +170,27 @@ def gen_sample(
 
 
 @app.command()
+def dashboard(
+    config: Optional[str] = typer.Option(None, help="Path to config YAML (for db_path)"),
+    db: Optional[str] = typer.Option(None, help="Path to combo_arb.db (overrides config)"),
+    host: str = typer.Option("127.0.0.1", help="Bind address (localhost by default; view via SSH tunnel)"),
+    port: int = typer.Option(8080, help="Port to serve on"),
+    log_level: str = typer.Option("INFO"),
+) -> None:
+    """Serve the read-only analytics dashboard (open trades, PnL, signals, history).
+
+    Binds localhost by default; view remotely with:
+      ssh -L 8080:localhost:8080 <user>@<host>   then open http://localhost:8080
+    """
+    configure_logging(log_level)
+    from combo_arb.dashboard.server import serve
+    from combo_arb.monitoring import queries
+
+    db_path = db or _load_cfg(config).persistence.db_path or queries.resolve_db_path()
+    serve(db_path, host=host, port=port)
+
+
+@app.command()
 def markets(
     config: Optional[str] = typer.Option(None, help="Path to config YAML"),
     limit: int = typer.Option(5),
