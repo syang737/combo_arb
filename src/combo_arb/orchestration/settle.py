@@ -38,16 +38,22 @@ class SettledTrade:
     expected_pnl: float
 
 
+# Kalshi's terminal (resolved) market states. The API finalizes a market as
+# "finalized"; "settled" is accepted defensively for any series/version that
+# reports the older string. Anything else (active/closed/...) is not yet resolved.
+_RESOLVED_STATUSES = {"finalized", "settled"}
+
+
 def _market_result(market: dict) -> Optional[bool]:
-    """True/False once a market has actually settled; None while still open/closed."""
-    if (market.get("status") or "").lower() != "settled":
+    """True/False once a market has actually resolved; None while still open/closed."""
+    if (market.get("status") or "").lower() not in _RESOLVED_STATUSES:
         return None
     result = (market.get("result") or "").lower()
     if result == "yes":
         return True
     if result == "no":
         return False
-    return None
+    return None  # resolved but void / no yes-no outcome -> leave unsettled
 
 
 def sweep_settlements(client: MarketDataClient, db: Database) -> list[SettledTrade]:
