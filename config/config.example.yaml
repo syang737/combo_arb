@@ -36,6 +36,11 @@ risk:
   max_total_exposure: 5000.0     # max aggregate $ notional across open positions
   max_open_signals: 25
   kill_switch: false             # if true, no new trades are executed
+  # Trades are sized so every leg with |delta| above this gets >=1 whole hedge contract;
+  # if that fully-hedged size doesn't fit capital/limits the combo is signal-only (never
+  # executed partially hedged). Lower = hedge more legs (needs larger size); higher = allow
+  # skipping tiny-delta legs so more combos trade.
+  min_hedge_delta: 0.01
 
 execution:
   live_enabled: false       # HARD GUARD. Must be true (+ mode=live + CONFIRM_LIVE_TRADING=YES) to send real orders

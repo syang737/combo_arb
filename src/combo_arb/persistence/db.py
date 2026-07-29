@@ -273,6 +273,41 @@ class Database:
     def get_positions(self) -> list[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM positions").fetchall()
 
+    def delete_position(self, instrument: str) -> None:
+        self.conn.execute("DELETE FROM positions WHERE instrument=?", (instrument,))
+
+    def rebuild_open_positions(self) -> None:
+        """Recompute the positions table as the net of fills across still-OPEN trades only.
+
+        Collapses the historical blotter to live exposure: contributions from settled /
+        expired / untracked trades are dropped. Idempotent -- safe to run on every startup.
+        """
+        rows = self.conn.execute(
+            "SELECT o.instrument AS instrument, o.instrument_type AS itype, "
+            "f.action AS action, f.price AS price, f.qty AS qty "
+            "FROM fills f JOIN orders o ON o.order_id = f.order_id "
+            "JOIN open_trades t ON t.signal_ref = o.signal_ref "
+            "WHERE t.status = 'open'"
+        ).fetchall()
+        agg: dict[str, list] = {}  # instrument -> [itype, net_qty, cost_sum, abs_qty]
+        for r in rows:
+            signed = r["qty"] if r["action"] == "buy" else -r["qty"]
+            a = agg.setdefault(r["instrument"], [r["itype"], 0, 0.0, 0])
+            a[1] += signed
+            a[2] += abs(signed) * (r["price"] or 0.0)
+            a[3] += abs(signed)
+        now = time.time()
+        self.conn.execute("DELETE FROM positions")
+        for instrument, (itype, net, cost_sum, abs_qty) in agg.items():
+            if net == 0:
+                continue
+            avg = cost_sum / abs_qty if abs_qty else 0.0
+            self.conn.execute(
+                "INSERT INTO positions(instrument, instrument_type, net_qty, avg_price, updated_ts) "
+                "VALUES (?,?,?,?,?)",
+                (instrument, itype, net, avg, now),
+            )
+
     def insert_latency(self, stage: str, ms: float, ts: Optional[float] = None) -> None:
         import time
         self.conn.execute(

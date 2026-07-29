@@ -15,6 +15,7 @@ protocol so this can be swapped for a better model later.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Optional, Protocol
 
@@ -164,11 +165,42 @@ class RiskManager:
         self.total_exposure: float = 0.0
         self.open_signals: int = 0
 
-    def _size(self, signal: ArbSignal, leg_prices: dict[str, LegPrice]) -> int:
+    def _full_hedge_min_qty(self, signal: ArbSignal, leg_prices: dict[str, LegPrice]) -> int:
+        """Smallest combo qty at which every *material* leg gets >=1 whole hedge contract.
+
+        Hedge ratios are fractional (leg delta = product of the other legs' probs), so a
+        single combo can't be delta-hedged in whole contracts -- the trade must be sized up
+        until ``qty * delta_i >= 1`` for the smallest material delta. Legs with
+        ``|delta| <= min_hedge_delta`` are treated as immaterial and don't drive sizing.
+        """
+        deltas = leg_deltas(signal, leg_prices, self.cfg)
+        eps = self.cfg.risk.min_hedge_delta
+        material = [abs(d) for d in deltas.values() if abs(d) > eps]
+        if not material:
+            return 1  # nothing material to hedge (rare); no size-up required
+        return math.ceil(1.0 / min(material))
+
+    def _sizing(self, signal: ArbSignal, leg_prices: dict[str, LegPrice]) -> tuple[int, str]:
+        """Return (qty, reason). qty=0 means don't trade (reason explains why).
+
+        We trade the *smallest fully-hedged* size. If that doesn't fit the per-trade
+        capital / contract caps, we emit signal-only rather than execute a partial (naked)
+        combo -- a partial hedge isn't an arb.
+
+        NOTE: ``signal.size`` is intentionally NOT used as a cap here -- markets-discovery
+        sets it to a placeholder 1, which would force every trade naked. Real available
+        liquidity should be enforced at live-execution time against the book depth.
+        """
         r = self.cfg.risk
         cost = max(per_contract_capital(signal, leg_prices, self.cfg), _EPS)
-        qty_by_capital = int(r.capital_per_trade // cost)
-        return max(0, min(signal.size, r.max_contracts_per_trade, qty_by_capital))
+        qty_affordable = min(r.max_contracts_per_trade, int(r.capital_per_trade // cost))
+        if qty_affordable <= 0:
+            return 0, "sized to zero (capital/limits too tight)"
+        qty_min = self._full_hedge_min_qty(signal, leg_prices)
+        if qty_min > qty_affordable:
+            return 0, (f"cannot fully hedge within limits "
+                       f"(need qty>={qty_min}, affordable {qty_affordable})")
+        return qty_min, "approved"
 
     def evaluate(self, signal: ArbSignal, leg_prices: dict[str, LegPrice]) -> RiskDecision:
         r = self.cfg.risk
@@ -177,9 +209,9 @@ class RiskManager:
         if self.open_signals >= r.max_open_signals:
             return RiskDecision(False, "max_open_signals reached")
 
-        qty = self._size(signal, leg_prices)
+        qty, reason = self._sizing(signal, leg_prices)
         if qty <= 0:
-            return RiskDecision(False, "sized to zero (capital/limits too tight)")
+            return RiskDecision(False, reason)
 
         cost = per_contract_capital(signal, leg_prices, self.cfg)
         added_exposure = qty * cost
@@ -220,6 +252,19 @@ class RiskManager:
             )
         pos.net_qty = new_net
         self.total_exposure += abs(signed) * fill.price
+
+    def close_fill(self, fill) -> None:
+        """Reverse a fill out of positions when its trade settles/expires (the contract
+        resolved). Removes only this fill's contribution; a position shared with another
+        open trade keeps that trade's quantity. Deletes the row when it reaches zero."""
+        pos = self.positions.get(fill.instrument)
+        if pos is None:
+            return
+        signed = fill.qty if fill.action == "buy" else -fill.qty
+        pos.net_qty -= signed
+        self.total_exposure = max(0.0, self.total_exposure - abs(signed) * fill.price)
+        if pos.net_qty == 0:
+            del self.positions[fill.instrument]
 
     def mark_signal_opened(self) -> None:
         self.open_signals += 1

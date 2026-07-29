@@ -75,6 +75,11 @@ class RiskConfig(BaseModel):
     max_total_exposure: float = 5000.0
     max_open_signals: int = 25
     kill_switch: bool = False
+    # A trade is sized so every leg whose |delta| exceeds this gets >=1 whole hedge
+    # contract; if that fully-hedged size doesn't fit capital/limits the trade is
+    # emitted signal-only rather than executed partially hedged. Legs below this
+    # delta are treated as immaterial (a negligible sliver of residual risk).
+    min_hedge_delta: float = 0.01
 
 
 class ExecutionConfig(BaseModel):

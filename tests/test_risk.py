@@ -45,15 +45,26 @@ def test_kill_switch_blocks(cfg, legs, underpriced_rfq):
     assert not dec.approved and "kill_switch" in dec.reason
 
 
-def test_sizing_capped_by_capital(cfg, legs, underpriced_rfq):
-    cfg.risk.capital_per_trade = 1.0  # tiny -> few contracts
+def test_cannot_fully_hedge_is_signal_only(cfg, legs, underpriced_rfq):
+    # Tight capital: a fully-hedged trade needs qty>=3 (min delta 0.40 -> ceil(1/0.40)),
+    # but floor(1.0/0.60)=1 is affordable. Must NOT trade a naked 1-lot -> signal-only.
+    cfg.risk.capital_per_trade = 1.0
     cfg.risk.max_contracts_per_trade = 1000
     rm = RiskManager(cfg)
     dec = rm.evaluate(_signal(cfg, legs, underpriced_rfq), legs)
-    # per-contract capital = leg-NO hedge (0.40*0.50 + 0.50*0.60 = 0.50) + combo 0.10 = 0.60
-    # floor(1.0 / 0.60) = 1
+    assert not dec.approved and "hedge" in dec.reason
+
+
+def test_full_hedge_sizes_up(cfg, legs, underpriced_rfq):
+    # Ample capital: size to the smallest fully-hedged qty and hedge every leg (>=1 each).
+    cfg.risk.capital_per_trade = 100.0
+    rm = RiskManager(cfg)
+    dec = rm.evaluate(_signal(cfg, legs, underpriced_rfq), legs)
     assert dec.approved
-    assert dec.qty == 1
+    assert dec.qty == 3  # ceil(1 / min delta 0.40)
+    qtys = {o.instrument: o.qty for o in dec.hedge_orders}
+    assert len(dec.hedge_orders) == 2
+    assert qtys["A"] >= 1 and qtys["B"] >= 1  # nothing dropped
 
 
 def test_max_open_signals(cfg, legs, underpriced_rfq):

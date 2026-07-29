@@ -75,6 +75,10 @@ class Controller:
             # Restore risk state so a process restart doesn't forget what's still
             # outstanding (previously both reset to empty on every restart).
             self.risk.hydrate_open_signals(self.db.count_open_trades())
+            # Collapse the positions table to only currently-open trades' exposure (drops
+            # contributions from settled/expired/untracked trades), then hydrate from it.
+            self.db.rebuild_open_positions()
+            self.db.commit()
             self.risk.hydrate_positions([
                 Position(
                     instrument=r["instrument"],
@@ -144,6 +148,9 @@ class Controller:
             self.client, self.db, max_open_age_s=self.cfg.settlement.max_open_age_s
         ):
             self.risk.mark_signal_closed()
+            # The trade's contracts resolved -> close its positions (stop showing them
+            # as live exposure).
+            self._close_trade_positions(t.signal_ref, t.mve_collection_ticker)
             # Correct cumulative equity: swap the trade-open Monte-Carlo estimate for
             # the now-known actual outcome (0 for an expired/un-fetchable trade).
             self._cum_equity += t.realized_pnl - t.expected_pnl
@@ -153,6 +160,21 @@ class Controller:
                 equity=self._cum_equity,
             ))
         self.db.commit()
+
+    def _close_trade_positions(self, signal_ref: str, combo_ticker: str) -> None:
+        """Reverse a settled/expired trade's fills out of the positions table, so it stops
+        showing as live exposure mid-run (a full rebuild only happens at startup). Deletes
+        rows that reach zero; upserts the rest."""
+        if self.db is None:
+            return
+        combo_fill, hedge_fills = self.db.get_trade_fills(signal_ref, combo_ticker)
+        fills = ([combo_fill] if combo_fill is not None else []) + hedge_fills
+        for f in fills:
+            self.risk.close_fill(f)
+            if f.instrument in self.risk.positions:
+                self.db.upsert_position(self.risk.positions[f.instrument])
+            else:
+                self.db.delete_position(f.instrument)
 
     def _handle_signal(self, sig: ArbSignal) -> TradeOutcome:
         if self.db is not None and self.db.is_trade_open(sig.rfq_id):
