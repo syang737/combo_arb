@@ -39,8 +39,16 @@ raw ticker until the engine sees it again after this update is deployed.
 ### Trade states (shown as badges)
 
 - **open** — executed (combo YES bought + hedge legs), awaiting *all* legs to *finalize* on Kalshi.
-- **settled** — every leg finalized; realized PnL is known.
-- **expired** — a leg became permanently un-fetchable (delisted); the trade was force-closed and its realized PnL is unknown.
+  The PnL shown is the trade-time Monte-Carlo **estimate** (`est.`), net of estimated fees for
+  the whole hedged package (combo + every leg). It can be negative even for an executed trade —
+  execution is gated on the *combo's* edge exceeding *estimated* fees, not on this full-package
+  estimate, so a marginal trade can pencil out slightly negative once every leg's cost is included.
+- **settled** — every leg finalized; **realized** PnL is known (shown next to the trade-time
+  `est.` for comparison). Each leg shows a **YES/NO** badge for how its underlying actually
+  resolved, and the card header shows the combo's own result (**combo YES** = it paid out,
+  **combo NO** = it didn't — the combo resolves YES only if *every* leg resolved in its favor).
+- **expired** — a leg became permanently un-fetchable (delisted); the trade was force-closed and
+  its realized PnL is unknown (no outcome badges — the resolutions were never confirmed).
 
 ## Run it on the instance (second container)
 

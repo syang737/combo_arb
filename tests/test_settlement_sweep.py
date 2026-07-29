@@ -103,6 +103,9 @@ def test_finalized_legs_close_the_trade():
     assert settled[0].expected_pnl == 1.23
     assert db.is_trade_open("t1") is False
     assert db.count_open_trades() == 0
+    # actual leg resolutions are persisted for later PnL attribution
+    row = db.conn.execute("SELECT outcomes_json FROM open_trades WHERE signal_ref='t1'").fetchone()
+    assert json.loads(row["outcomes_json"]) == {"A": True, "B": True}
 
 
 def test_unresolved_leg_keeps_trade_open():

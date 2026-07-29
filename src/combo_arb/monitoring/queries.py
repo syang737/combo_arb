@@ -7,6 +7,7 @@ JSON-serializable dicts/lists suitable for returning straight from an MCP tool.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -231,6 +232,28 @@ def market_names_map(path: str) -> dict:
         conn.close()
 
 
+def _combo_resolved_yes(legs_json, outcomes: dict):
+    """Did the (bought-YES) combo pay? Combo resolves YES iff every selected leg resolves
+    in the combo's favour (YES-side leg -> underlying YES; NO-side leg -> underlying NO).
+    Returns None if outcomes are missing/incomplete (e.g. expired trades)."""
+    if not outcomes:
+        return None
+    try:
+        legs = json.loads(legs_json or "[]")
+    except (TypeError, ValueError):
+        return None
+    if not legs:
+        return None
+    for leg in legs:
+        o = outcomes.get(leg.get("leg_ticker"))
+        if o is None:
+            return None
+        favourable = o if leg.get("side", "yes") == "yes" else (not o)
+        if not favourable:
+            return False
+    return True
+
+
 def trades_grouped(path: str, closed: bool = False, limit: int = 50) -> list[dict]:
     """Trades grouped as combo + its hedge legs (one entry per trade / signal_ref).
 
@@ -248,12 +271,17 @@ def trades_grouped(path: str, closed: bool = False, limit: int = 50) -> list[dic
         try:
             trades = conn.execute(
                 f"SELECT signal_ref, mve_collection_ticker, status, opened_ts, settled_ts, "
-                f"expected_pnl, realized_pnl FROM open_trades WHERE status IN ({marks}) "
-                f"ORDER BY {order_by} LIMIT ?", (*statuses, limit)).fetchall()
+                f"expected_pnl, realized_pnl, legs_json, outcomes_json FROM open_trades "
+                f"WHERE status IN ({marks}) ORDER BY {order_by} LIMIT ?",
+                (*statuses, limit)).fetchall()
         except sqlite3.OperationalError:
             return []
         out: list[dict] = []
         for t in trades:
+            try:
+                outcomes = json.loads(t["outcomes_json"]) if t["outcomes_json"] else {}
+            except (TypeError, ValueError):
+                outcomes = {}
             fills = conn.execute(
                 "SELECT o.instrument AS instrument, o.instrument_type AS itype, o.side AS side, "
                 "o.action AS action, f.price AS price, f.qty AS qty, f.fee AS fee "
@@ -263,7 +291,9 @@ def trades_grouped(path: str, closed: bool = False, limit: int = 50) -> list[dic
             legs: list[dict] = []
             for r in fills:
                 leg = {"instrument": r["instrument"], "side": r["side"], "action": r["action"],
-                       "qty": r["qty"], "price": r["price"], "fee": r["fee"]}
+                       "qty": r["qty"], "price": r["price"], "fee": r["fee"],
+                       # how the underlying actually resolved (None if unknown / combo row)
+                       "resolved_yes": outcomes.get(r["instrument"])}
                 if r["itype"] == "combo" and combo is None:
                     combo = leg
                 else:
@@ -276,6 +306,7 @@ def trades_grouped(path: str, closed: bool = False, limit: int = 50) -> list[dic
                 "settled_iso": _iso(t["settled_ts"]),
                 "expected_pnl": t["expected_pnl"],
                 "realized_pnl": t["realized_pnl"],
+                "combo_resolved_yes": _combo_resolved_yes(t["legs_json"], outcomes),
                 "combo": combo,
                 "legs": legs,
             })

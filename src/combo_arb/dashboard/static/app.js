@@ -108,26 +108,44 @@ function drawEquity(series) {
 // -- grouped trade cards ------------------------------------------------------
 const statusBadge = (s) => `<span class="badge ${s}">${s}</span>`;
 
+function resBadge(r) {
+  if (r === true) return `<span class="res yes">YES</span>`;
+  if (r === false) return `<span class="res no">NO</span>`;
+  return "";
+}
+
 function legRow(l) {
-  const dir = `${l.action}/${l.side}`;
   return `<div class="leg">
     <span class="leg-name">${namedCell(l.instrument)}</span>
-    <span class="leg-dir">${dir}</span>
+    <span class="leg-dir">${l.action}/${l.side}</span>
     <span class="leg-num">${l.qty} @ ${num(l.price, 3)}</span>
+    <span class="leg-res">${resBadge(l.resolved_yes)}</span>
   </div>`;
+}
+
+function comboOutcome(t) {
+  if (t.status === "open") return "";
+  if (t.combo_resolved_yes === true) return `<span class="res yes">combo YES</span>`;
+  if (t.combo_resolved_yes === false) return `<span class="res no">combo NO</span>`;
+  return "";  // expired / unknown
 }
 
 function tradeCard(t) {
   const comboTicker = (t.combo && t.combo.instrument) || t.mve_collection_ticker;
-  const pnl = t.status === "open" ? t.expected_pnl : t.realized_pnl;
-  const pnlLabel = t.status === "open" ? "est." : "realized";
-  const when = t.status === "open" ? ("opened " + fmtTime(t.opened_iso)) : ("closed " + fmtTime(t.settled_iso));
+  const closed = t.status !== "open";
+  const pnl = closed ? t.realized_pnl : t.expected_pnl;
+  const pnlLabel = closed ? "realized" : "est.";
+  const when = closed ? ("closed " + fmtTime(t.settled_iso)) : ("opened " + fmtTime(t.opened_iso));
+  // On settled cards, show the trade-time estimate next to the realized number.
+  const est = (closed && t.expected_pnl !== null && t.expected_pnl !== undefined)
+    ? `<span class="muted">est ${money(t.expected_pnl)}</span>` : "";
   const legs = (t.legs || []).map(legRow).join("") || `<div class="leg muted">no leg fills recorded</div>`;
   return `<div class="trade-card">
     <div class="trade-head">
-      <div class="trade-title">${namedCell(comboTicker)} ${statusBadge(t.status)}</div>
+      <div class="trade-title">${namedCell(comboTicker)} ${statusBadge(t.status)} ${comboOutcome(t)}</div>
       <div class="trade-meta">
         <span class="${signClass(pnl)}">${pnl === null || pnl === undefined ? "—" : money(pnl)} <span class="muted">${pnlLabel}</span></span>
+        ${est}
         <span class="muted">${when}</span>
       </div>
     </div>

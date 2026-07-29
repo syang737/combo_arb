@@ -130,7 +130,10 @@ def sweep_settlements(
         else:
             realized = settle_pnl(legs, combo_fill, hedge_fills, trade_outcomes)
 
-        db.settle_open_trade(row["signal_ref"], settled_ts=now, realized_pnl=realized)
+        db.settle_open_trade(
+            row["signal_ref"], settled_ts=now, realized_pnl=realized,
+            outcomes_json=json.dumps({t: bool(v) for t, v in trade_outcomes.items()}),
+        )
         settled.append(
             SettledTrade(
                 signal_ref=row["signal_ref"],

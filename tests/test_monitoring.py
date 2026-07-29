@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 import pytest
@@ -150,6 +151,39 @@ def test_trades_grouped(tmp_path):
     assert tr["combo"]["instrument"] == "C" and tr["combo"]["qty"] == 10
     assert len(tr["legs"]) == 1 and tr["legs"][0]["instrument"] == "A"
     assert queries.trades_grouped(path, closed=True) == []   # nothing closed yet
+
+
+def test_trades_grouped_closed_outcomes(tmp_path):
+    path = str(tmp_path / "grpc.db")
+    db = Database(path)
+    for o in [
+        Order(instrument="C", instrument_type=InstrumentType.COMBO, side=Side.YES,
+              action="buy", price=0.1, qty=3, signal_ref="t1", order_id="oc"),
+        Order(instrument="A", instrument_type=InstrumentType.LEG, side=Side.NO,
+              action="buy", price=0.5, qty=1, signal_ref="t1", order_id="oa"),
+        Order(instrument="B", instrument_type=InstrumentType.LEG, side=Side.NO,
+              action="buy", price=0.5, qty=2, signal_ref="t1", order_id="ob"),
+    ]:
+        db.insert_order(o)
+    db.insert_fill(Fill(order_id="oc", instrument="C", instrument_type=InstrumentType.COMBO,
+                        side=Side.YES, action="buy", price=0.1, qty=3, fee=0.0))
+    db.insert_fill(Fill(order_id="oa", instrument="A", side=Side.NO, action="buy", price=0.5, qty=1, fee=0.0))
+    db.insert_fill(Fill(order_id="ob", instrument="B", side=Side.NO, action="buy", price=0.5, qty=2, fee=0.0))
+    db.insert_open_trade(signal_ref="t1", mve_collection_ticker="C",
+                         legs_json=json.dumps([{"leg_ticker": "A", "side": "yes"},
+                                               {"leg_ticker": "B", "side": "yes"}]),
+                         opened_ts=1.0, expected_pnl=-0.02)
+    db.settle_open_trade("t1", settled_ts=2.0, realized_pnl=0.5,
+                         outcomes_json=json.dumps({"A": True, "B": False}))
+    db.commit()
+    db.close()
+
+    tr = queries.trades_grouped(path, closed=True)[0]
+    assert tr["realized_pnl"] == 0.5 and tr["expected_pnl"] == -0.02
+    # combo bought YES pays iff all yes-side legs resolve YES; B resolved NO -> combo NO
+    assert tr["combo_resolved_yes"] is False
+    res = {l["instrument"]: l["resolved_yes"] for l in tr["legs"]}
+    assert res == {"A": True, "B": False}
 
 
 def test_missing_db_returns_error(tmp_path):

@@ -87,9 +87,10 @@ CREATE TABLE IF NOT EXISTS open_trades (
     legs_json TEXT,                        -- [{"leg_ticker":.., "side":"yes"|"no"}, ...]
     opened_ts REAL,
     expected_pnl REAL,                     -- Monte-Carlo estimate recorded at trade time
-    status TEXT DEFAULT 'open',            -- open | settled
+    status TEXT DEFAULT 'open',            -- open | settled | expired
     settled_ts REAL,
-    realized_pnl REAL
+    realized_pnl REAL,
+    outcomes_json TEXT                     -- {leg_ticker: true|false} actual resolutions
 );
 CREATE INDEX IF NOT EXISTS ix_open_trades_status ON open_trades(status);
 
@@ -109,7 +110,15 @@ class Database:
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(_SCHEMA)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after a DB was first created (CREATE IF NOT EXISTS
+        won't alter existing tables)."""
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(open_trades)")}
+        if "outcomes_json" not in cols:
+            self.conn.execute("ALTER TABLE open_trades ADD COLUMN outcomes_json TEXT")
 
     # -- writers -----------------------------------------------------------
     def upsert_market_name(self, ticker: Optional[str], display_name: Optional[str]) -> None:
@@ -253,11 +262,14 @@ class Database:
         hedge_fills = [f for f in fills if f.instrument != combo_ticker]
         return combo_fill, hedge_fills
 
-    def settle_open_trade(self, signal_ref: str, settled_ts: float, realized_pnl: float) -> None:
+    def settle_open_trade(
+        self, signal_ref: str, settled_ts: float, realized_pnl: float,
+        outcomes_json: Optional[str] = None,
+    ) -> None:
         self.conn.execute(
-            "UPDATE open_trades SET status='settled', settled_ts=?, realized_pnl=? "
-            "WHERE signal_ref=?",
-            (settled_ts, realized_pnl, signal_ref),
+            "UPDATE open_trades SET status='settled', settled_ts=?, realized_pnl=?, "
+            "outcomes_json=? WHERE signal_ref=?",
+            (settled_ts, realized_pnl, outcomes_json, signal_ref),
         )
 
     def expire_open_trade(self, signal_ref: str, settled_ts: float) -> None:
