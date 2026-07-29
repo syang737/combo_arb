@@ -9,6 +9,7 @@ from combo_arb.models import (
     Fill,
     InstrumentType,
     LegPrice,
+    Order,
     PnL,
     Position,
     Side,
@@ -109,6 +110,46 @@ def test_open_trades_summary(tmp_path):
     assert s["settled_realized_pnl"] == pytest.approx(2.5)
     assert s["oldest_open_signal_ref"] == "t-open"
     assert len(s["recent_settlements"]) == 2
+
+
+def test_market_names_map(tmp_path):
+    path = str(tmp_path / "names.db")
+    db = Database(path)
+    db.upsert_market_name("A", "Team A wins")
+    db.upsert_market_name("A", "Team A wins (updated)")   # idempotent overwrite
+    db.upsert_market_name("", "ignored")                   # no-op (empty ticker)
+    db.upsert_market_name("B", None)                        # no-op (empty name)
+    db.commit()
+    db.close()
+    assert queries.market_names_map(path) == {"A": "Team A wins (updated)"}
+
+
+def test_trades_grouped(tmp_path):
+    path = str(tmp_path / "grp.db")
+    db = Database(path)
+    for o in [
+        Order(instrument="C", instrument_type=InstrumentType.COMBO, side=Side.YES,
+              action="buy", price=0.1, qty=10, signal_ref="t1", order_id="oc"),
+        Order(instrument="A", instrument_type=InstrumentType.LEG, side=Side.NO,
+              action="buy", price=0.5, qty=5, signal_ref="t1", order_id="oa"),
+    ]:
+        db.insert_order(o)
+    db.insert_fill(Fill(order_id="oc", instrument="C", instrument_type=InstrumentType.COMBO,
+                        side=Side.YES, action="buy", price=0.1, qty=10, fee=0.02))
+    db.insert_fill(Fill(order_id="oa", instrument="A", side=Side.NO,
+                        action="buy", price=0.5, qty=5, fee=0.01))
+    db.insert_open_trade(signal_ref="t1", mve_collection_ticker="C", legs_json="[]",
+                         opened_ts=100.0, expected_pnl=1.0)
+    db.commit()
+    db.close()
+
+    rows = queries.trades_grouped(path, closed=False)
+    assert len(rows) == 1
+    tr = rows[0]
+    assert tr["signal_ref"] == "t1" and tr["status"] == "open"
+    assert tr["combo"]["instrument"] == "C" and tr["combo"]["qty"] == 10
+    assert len(tr["legs"]) == 1 and tr["legs"][0]["instrument"] == "A"
+    assert queries.trades_grouped(path, closed=True) == []   # nothing closed yet
 
 
 def test_missing_db_returns_error(tmp_path):

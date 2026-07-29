@@ -71,8 +71,22 @@ main {
 .neg { color: var(--neg); }
 .num { font-variant-numeric: tabular-nums; text-align: right; }
 
-.chart-wrap { margin-top: 14px; height: 140px; }
-#equity-chart { width: 100%; height: 140px; display: block; }
+.chart-wrap { margin-top: 14px; height: 170px; }
+#equity-chart { width: 100%; height: 170px; display: block; }
+
+.legend { font-size: 11px; color: var(--muted); }
+.legend .badge { margin: 0 2px; }
+
+.trade-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+.trade-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; }
+.trade-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.trade-title { font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.trade-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.trade-legs { display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--border); padding-top: 7px; }
+.leg { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; font-size: 12px; align-items: baseline; }
+.leg-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.leg-dir { color: var(--muted); font-size: 11px; }
+.leg-num { font-variant-numeric: tabular-nums; color: var(--text); }
 
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 12.5px; }

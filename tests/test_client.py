@@ -3,7 +3,7 @@
 import pytest
 
 from combo_arb.config import AppConfig
-from combo_arb.kalshi.client import KalshiClient, _cents_to_dollars, _price_field
+from combo_arb.kalshi.client import KalshiClient, _cents_to_dollars, _market_title, _price_field
 from combo_arb.models import Side
 
 
@@ -28,17 +28,27 @@ def test_price_field_dollars_and_cents():
     assert _price_field({}, "yes_ask") is None
 
 
+def test_market_title_precedence():
+    assert _market_title({"title": "Full question?", "subtitle": "sub"}) == "Full question?"
+    assert _market_title({"subtitle": "Detroit Tigers"}) == "Detroit Tigers"
+    assert _market_title({"yes_sub_title": "Yes side"}) == "Yes side"
+    assert _market_title({"ticker": "KX-X"}) is None
+    assert _market_title({}) is None
+
+
 def test_get_leg_price_converts_cents(monkeypatch):
     cfg = AppConfig()
     client = KalshiClient.__new__(KalshiClient)  # skip __init__ (no network/keys)
     client.cfg = cfg
     monkeypatch.setattr(
         client, "get_market",
-        lambda ticker: {"yes_bid": 49, "yes_ask": 51, "last_price": 50},
+        lambda ticker: {"yes_bid": 49, "yes_ask": 51, "last_price": 50,
+                        "title": "Will the Orioles beat the Tigers?"},
     )
     lp = client.get_leg_price("A")
     assert lp.best_bid == 0.49 and lp.best_ask == 0.51 and lp.last_trade_price == 0.50
     assert lp.mid == 0.50
+    assert lp.title == "Will the Orioles beat the Tigers?"   # display name captured
 
 
 def test_parse_rfq_mve_legs():

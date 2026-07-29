@@ -51,6 +51,7 @@ class LegPrice(BaseModel):
     best_bid: Optional[float] = None
     best_ask: Optional[float] = None
     last_trade_price: Optional[float] = None
+    title: Optional[str] = None            # human-readable market name (Kalshi title/subtitle)
     timestamp: float = Field(default_factory=_now)
 
     @property
@@ -80,6 +81,7 @@ class ComboRFQ(BaseModel):
     rfq_id: str
     mve_collection_ticker: str
     market_ticker: Optional[str] = None    # the tradeable combo market (priced directly)
+    title: Optional[str] = None            # human-readable combo name (Kalshi title/subtitle)
     legs: list[ComboLeg]
     quote_yes: Optional[float] = None      # combo YES price read from the combo market
     quote_no: Optional[float] = None       # NO side (not assumed tradeable by this engine)

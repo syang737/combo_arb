@@ -37,13 +37,22 @@
     </section>
 
     <section class="card span-2">
-      <div class="card-head"><h2>Open trades (awaiting settlement)</h2></div>
-      <div class="table-wrap"><table id="opentrades-tbl"></table></div>
+      <div class="card-head">
+        <h2>Open trades <span class="muted">combo + hedge legs</span></h2>
+        <span class="legend"><span class="badge open">open</span> executed, awaiting all legs to finalize on Kalshi</span>
+      </div>
+      <div id="opentrades-cards" class="trade-cards"></div>
     </section>
 
     <section class="card span-2">
-      <div class="card-head"><h2>Trade history</h2><span class="muted">settled / expired</span></div>
-      <div class="table-wrap"><table id="trades-tbl"></table></div>
+      <div class="card-head">
+        <h2>Trade history</h2>
+        <span class="legend">
+          <span class="badge settled">settled</span> all legs finalized, realized PnL known ·
+          <span class="badge expired">expired</span> leg delisted / un-fetchable, force-closed
+        </span>
+      </div>
+      <div id="trades-cards" class="trade-cards"></div>
     </section>
 
     <section class="card span-2">

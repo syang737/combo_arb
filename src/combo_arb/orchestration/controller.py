@@ -108,9 +108,12 @@ class Controller:
         if self.db is not None:
             for rfq in self.scanner.last_rfqs:
                 self.db.insert_rfq(rfq)
+                # Capture the combo's display name (keyed on the tradeable market ticker).
+                self.db.upsert_market_name(rfq.market_ticker or rfq.mve_collection_ticker, rfq.title)
             # Live leg quotes actually used to compute fair value (deduped per scan).
             for ticker, lp in self.scanner.last_leg_prices.items():
                 self.db.insert_snapshot(lp, implied_prob(lp, self.cfg.pricing))
+                self.db.upsert_market_name(ticker, lp.title)
             # Persist flagged + near-miss evaluations for buffer calibration.
             band = self.cfg.thresholds.near_miss_band
             for ev in self.scanner.last_evaluations:

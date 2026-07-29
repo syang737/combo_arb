@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -91,6 +92,12 @@ CREATE TABLE IF NOT EXISTS open_trades (
     realized_pnl REAL
 );
 CREATE INDEX IF NOT EXISTS ix_open_trades_status ON open_trades(status);
+
+CREATE TABLE IF NOT EXISTS market_names (
+    ticker TEXT PRIMARY KEY,               -- combo or leg market ticker
+    display_name TEXT,                     -- Kalshi title/subtitle captured at scan time
+    updated_ts REAL
+);
 """
 
 
@@ -105,6 +112,17 @@ class Database:
         self.conn.commit()
 
     # -- writers -----------------------------------------------------------
+    def upsert_market_name(self, ticker: Optional[str], display_name: Optional[str]) -> None:
+        """Record a ticker's human-readable name (idempotent). No-op if either is empty."""
+        if not ticker or not display_name:
+            return
+        self.conn.execute(
+            "INSERT INTO market_names(ticker, display_name, updated_ts) VALUES (?,?,?) "
+            "ON CONFLICT(ticker) DO UPDATE SET display_name=excluded.display_name, "
+            "updated_ts=excluded.updated_ts",
+            (ticker, display_name, time.time()),
+        )
+
     def insert_snapshot(self, lp: LegPrice, implied_prob: Optional[float] = None) -> None:
         self.conn.execute(
             "INSERT INTO market_snapshots(ts, leg_ticker, best_bid, best_ask, "

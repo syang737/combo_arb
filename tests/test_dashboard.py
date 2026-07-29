@@ -10,7 +10,7 @@ import urllib.request
 import pytest
 
 from combo_arb.dashboard.server import build_overview, make_server
-from combo_arb.models import Fill, InstrumentType, PnL, Position, Side
+from combo_arb.models import Fill, InstrumentType, Order, PnL, Position, Side
 from combo_arb.monitoring import queries
 from combo_arb.persistence.db import Database
 
@@ -25,6 +25,11 @@ def db_path(tmp_path):
                         side=Side.YES, action="buy", price=0.1, qty=10, fee=0.02))
     db.upsert_position(Position(instrument="A", instrument_type=InstrumentType.LEG,
                                 net_qty=5, avg_price=0.5))
+    db.upsert_market_name("C1", "Combo one")
+    db.insert_order(Order(instrument="C1", instrument_type=InstrumentType.COMBO, side=Side.YES,
+                          action="buy", price=0.1, qty=10, signal_ref="t-open", order_id="oc1"))
+    db.insert_fill(Fill(order_id="oc1", instrument="C1", instrument_type=InstrumentType.COMBO,
+                        side=Side.YES, action="buy", price=0.1, qty=10, fee=0.02))
     db.insert_open_trade(signal_ref="t-open", mve_collection_ticker="C1",
                          legs_json="[]", opened_ts=100.0, expected_pnl=1.0)
     db.insert_open_trade(signal_ref="t-set", mve_collection_ticker="C2",
@@ -102,6 +107,20 @@ def test_index_served(server):
 def test_static_asset_served(server):
     status, _, ctype = _get(server + "/static/app.js")
     assert status == 200 and "javascript" in ctype
+
+
+def test_api_names_endpoint(server):
+    status, body, ctype = _get(server + "/api/names")
+    assert status == 200 and "application/json" in ctype
+    assert json.loads(body).get("C1") == "Combo one"
+
+
+def test_api_trades_grouped_endpoint(server):
+    status, body, _ = _get(server + "/api/trades-grouped?status=open")
+    assert status == 200
+    data = json.loads(body)
+    t = next(t for t in data if t["signal_ref"] == "t-open")
+    assert t["combo"]["instrument"] == "C1" and t["combo"]["qty"] == 10
 
 
 def test_unknown_api_is_404(server):

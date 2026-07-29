@@ -52,6 +52,11 @@ def _dispatch_api(path: str, qs: dict, db_path: str):
     """Route an /api/* path to a query function. Returns a JSON-able object or None (404)."""
     if path == "/api/overview":
         return build_overview(db_path)
+    if path == "/api/names":
+        return queries.market_names_map(db_path)
+    if path == "/api/trades-grouped":
+        closed = qs.get("status", ["open"])[0] == "closed"
+        return queries.trades_grouped(db_path, closed=closed, limit=_clamp_limit(qs, 50))
     if path == "/api/signals":
         return queries.recent_signals(db_path, _clamp_limit(qs, 25))
     if path == "/api/fills":

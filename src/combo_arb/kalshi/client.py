@@ -55,6 +55,16 @@ def _price_field(m: dict, base: str) -> Optional[float]:
     return _cents_to_dollars(m.get(base))
 
 
+def _market_title(m: dict) -> Optional[str]:
+    """Human-readable name for a market, from the Kalshi payload. Prefers the full
+    ``title`` (the question), then ``subtitle`` / ``yes_sub_title``. None if absent."""
+    for key in ("title", "subtitle", "yes_sub_title"):
+        v = m.get(key)
+        if v:
+            return str(v).strip()
+    return None
+
+
 def _client_error_message(method: str, endpoint: str, resp: "httpx.Response") -> str:
     body = (resp.text or "")[:300]
     msg = f"Kalshi {resp.status_code} on {method} {endpoint}: {body}"
@@ -165,6 +175,7 @@ class KalshiClient(MarketDataClient):
             best_bid=_price_field(m, "yes_bid"),
             best_ask=_price_field(m, "yes_ask"),
             last_trade_price=_price_field(m, "last_price"),
+            title=_market_title(m),
         )
 
     def get_orderbook(self, ticker: str) -> dict:
@@ -291,6 +302,8 @@ class KalshiClient(MarketDataClient):
         except RuntimeError as exc:
             log.debug("combo market %s unavailable: %s", rfq.market_ticker, exc)
             return None
+        if rfq.title is None:
+            rfq.title = _market_title(m)  # capture the combo's display name while we have it
         buying = self.cfg.strategy.direction != "sell_overpriced"
         return _price_field(m, "yes_ask" if buying else "yes_bid")
 

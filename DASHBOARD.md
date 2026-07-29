@@ -18,16 +18,29 @@ beside the engine on the 512 MB box.
 | Panel | Source (`monitoring/queries.py`) |
 |-------|----------------------------------|
 | Engine liveness (last write, DB size, row counts) | `db_status` |
-| PnL tiles + equity curve | `pnl_summary`, `pnl_series` |
+| PnL tiles + equity curve (time + equity axes) | `pnl_summary`, `pnl_series` |
 | Open-trade tiles (open/settled/expired, oldest) | `open_trades_summary` |
-| Open trades awaiting settlement | `open_trades_list` |
-| Trade history (settled + expired, realized vs expected) | `recent_trades` |
+| Open trades — grouped as combo + hedge legs | `trades_grouped(closed=False)` |
+| Trade history — grouped, settled + expired | `trades_grouped(closed=True)` |
 | Arb signals | `recent_signals` |
 | Recent fills | `recent_fills` |
-| Positions | `open_positions` |
+| Positions (flat net exposure per instrument) | `open_positions` |
 | Near-misses (closest to an edge) | `top_near_misses` |
 
 The page auto-refreshes every 10s (toggle in the header).
+
+### Contract names
+
+The engine captures each market's Kalshi display title at scan time (`market_names`
+table, populated by the scanner/controller) and the dashboard shows those instead of raw
+tickers, with the ticker on hover. Names populate **going forward** — a contract shows its
+raw ticker until the engine sees it again after this update is deployed.
+
+### Trade states (shown as badges)
+
+- **open** — executed (combo YES bought + hedge legs), awaiting *all* legs to *finalize* on Kalshi.
+- **settled** — every leg finalized; realized PnL is known.
+- **expired** — a leg became permanently un-fetchable (delisted); the trade was force-closed and its realized PnL is unknown.
 
 ## Run it on the instance (second container)
 

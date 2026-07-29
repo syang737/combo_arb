@@ -16,7 +16,7 @@ from typing import Any, Optional
 _DEFAULT_DB = "data/combo_arb.db"
 _TABLES = (
     "market_snapshots", "combo_rfqs", "combo_evaluations", "arb_signals",
-    "orders", "fills", "positions", "pnl", "latency", "open_trades",
+    "orders", "fills", "positions", "pnl", "latency", "open_trades", "market_names",
 )
 
 
@@ -211,6 +211,75 @@ def recent_trades(path: str, limit: int = 50) -> list[dict]:
             r["opened_iso"] = _iso(r["opened_ts"])
             r["settled_iso"] = _iso(r["settled_ts"])
         return rows
+    finally:
+        conn.close()
+
+
+def market_names_map(path: str) -> dict:
+    """Ticker -> human-readable display name (captured by the engine at scan time).
+    Empty if the table doesn't exist yet or nothing has been named."""
+    conn = _connect_ro(path)
+    if conn is None:
+        return {}
+    try:
+        try:
+            rows = conn.execute("SELECT ticker, display_name FROM market_names").fetchall()
+        except sqlite3.OperationalError:
+            return {}
+        return {r["ticker"]: r["display_name"] for r in rows}
+    finally:
+        conn.close()
+
+
+def trades_grouped(path: str, closed: bool = False, limit: int = 50) -> list[dict]:
+    """Trades grouped as combo + its hedge legs (one entry per trade / signal_ref).
+
+    ``closed=False`` returns still-open trades (oldest first); ``closed=True`` returns
+    settled + expired history (most recently closed first). Each fill is classified as
+    combo vs leg by its order's ``instrument_type`` (robust to ticker naming), joined
+    ``fills`` -> ``orders`` on ``order_id``."""
+    conn = _connect_ro(path)
+    if conn is None:
+        return [_missing(path)]
+    try:
+        statuses = ("settled", "expired") if closed else ("open",)
+        marks = ",".join("?" * len(statuses))
+        order_by = "settled_ts DESC" if closed else "opened_ts ASC"
+        try:
+            trades = conn.execute(
+                f"SELECT signal_ref, mve_collection_ticker, status, opened_ts, settled_ts, "
+                f"expected_pnl, realized_pnl FROM open_trades WHERE status IN ({marks}) "
+                f"ORDER BY {order_by} LIMIT ?", (*statuses, limit)).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        out: list[dict] = []
+        for t in trades:
+            fills = conn.execute(
+                "SELECT o.instrument AS instrument, o.instrument_type AS itype, o.side AS side, "
+                "o.action AS action, f.price AS price, f.qty AS qty, f.fee AS fee "
+                "FROM fills f JOIN orders o ON o.order_id = f.order_id WHERE o.signal_ref = ?",
+                (t["signal_ref"],)).fetchall()
+            combo = None
+            legs: list[dict] = []
+            for r in fills:
+                leg = {"instrument": r["instrument"], "side": r["side"], "action": r["action"],
+                       "qty": r["qty"], "price": r["price"], "fee": r["fee"]}
+                if r["itype"] == "combo" and combo is None:
+                    combo = leg
+                else:
+                    legs.append(leg)
+            out.append({
+                "signal_ref": t["signal_ref"],
+                "mve_collection_ticker": t["mve_collection_ticker"],
+                "status": t["status"],
+                "opened_iso": _iso(t["opened_ts"]),
+                "settled_iso": _iso(t["settled_ts"]),
+                "expected_pnl": t["expected_pnl"],
+                "realized_pnl": t["realized_pnl"],
+                "combo": combo,
+                "legs": legs,
+            })
+        return out
     finally:
         conn.close()
 
