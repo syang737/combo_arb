@@ -86,6 +86,28 @@ Set `risk.kill_switch: true` in config and `docker restart combo-arb` (or just
 `docker stop combo-arb`). With the switch on, `RiskManager.evaluate` blocks every
 new trade.
 
+## Why the bot trades less now (negative convexity)
+
+Measured against the repo's own settlement math: a combo pays only if **every** leg
+hits, so a linear delta hedge against that nonlinear (AND) payoff has a specific weak
+spot — "all but one leg hits" is usually the **worst** outcome, and often the
+**second most likely** one. Hedge quality also degrades with leg count (each leg's
+hedge ratio is the product of the *other* legs' probabilities, which shrinks fast):
+hedging is +EV at 2 legs, roughly breakeven at 3, and EV-negative at 5+ (the fees on
+N hedge legs exceed the protection they buy). Three guards now enforce this:
+
+- `risk.max_legs` (default 3) — combos with more legs are signal-only.
+- `risk.max_leg_price` (default 0.95) — a near-certain hedge leg buys almost no
+  protection but still costs a fee.
+- `thresholds.min_expected_pnl` (default 0.0) — the pre-trade Monte-Carlo full-package
+  expected PnL (real prices, real fees, the AND-rule) must clear this, checked
+  **before** executing, not just estimated after. Works together with
+  `thresholds.apply_buffer` (now on by default) which requires the scanner's own edge
+  to clear fees by a margin, not just by a fraction of a cent.
+
+Expect a meaningfully lower trade frequency — that's the point; the filtered trades
+are the ones that were losing.
+
 ## Known limitations (close before scaling real size)
 
 - **Realized PnL at settlement isn't reconciled** — combos settle days later; the

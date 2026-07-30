@@ -60,12 +60,24 @@ class ThresholdsConfig(BaseModel):
     buffer_abs: float = 0.01
     buffer_pct: float = 0.005
     min_margin: float = 0.0
-    # Apply the safety buffer on top of fees. Off by default (paper/exploration
-    # flags on any positive net-of-fees edge); auto-forced on when live is armed.
-    apply_buffer: bool = False
+    # Apply the safety buffer on top of fees. Auto-forced on when live is armed
+    # regardless of this setting. On by default so paper mode's fill/reject behaviour
+    # matches live -- measured: without a buffer, marginal signals (edge clearing fees
+    # by a fraction of a cent) execute and lose more often than not once real fill
+    # prices, whole-contract hedge rounding, and the AND-rule convexity are accounted
+    # for (a "near miss" -- most-but-not-all legs hitting -- is the single worst
+    # outcome and often the second most likely one).
+    apply_buffer: bool = True
     # How far BELOW the flag threshold an edge can be and still be persisted as a
     # "near miss" (for buffer calibration). Larger = more rows logged.
     near_miss_band: float = 0.05
+    # Reject a trade (signal-only) if the pre-trade modelled full-package expected PnL
+    # (combo + every hedge leg, real fill prices/fees, Monte-Carlo settlement) isn't
+    # above this. The scanner's per-contract combo edge (arbitrage_margin) is flagged
+    # BEFORE the hedge is priced/rounded to whole contracts, so a signal can clear that
+    # threshold while the honest full-package number is negative -- this catches that
+    # gap instead of finding out only after the trade is already placed.
+    min_expected_pnl: float = 0.0
 
 
 class RiskConfig(BaseModel):
@@ -86,6 +98,13 @@ class RiskConfig(BaseModel):
     # left for its probability to move against the combo) while still tying up
     # capital and paying a fee on it.
     max_leg_price: float = 0.95
+    # Max legs in a combo we'll trade. A combo pays only if EVERY leg hits, so each
+    # leg's hedge ratio is the product of the *other* legs' probabilities -- which
+    # shrinks fast as legs are added. Past ~3 legs the fees on N hedge legs exceed
+    # the protection they buy (measured: hedging is +EV at 2 legs, ~breakeven at 3,
+    # negative at 5+), and the worst case is "all but one leg hit" -- the second most
+    # likely outcome. Combos with more legs are emitted signal-only.
+    max_legs: int = 3
 
 
 class ExecutionConfig(BaseModel):

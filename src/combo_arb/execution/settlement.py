@@ -20,7 +20,9 @@ import random
 import statistics
 from dataclasses import dataclass, field
 
-from combo_arb.models import ArbSignal, ComboLeg, Fill, Side
+from combo_arb.config import AppConfig
+from combo_arb.models import ArbSignal, ComboLeg, Fill, InstrumentType, Order, Side
+from combo_arb.pricing.fees import taker_fee
 
 
 @dataclass
@@ -113,3 +115,48 @@ def simulate_pnl(
         "max_pnl": max(pnls) if pnls else 0.0,
         "immediate_cash": immediate_cash(trade),
     }
+
+
+def expected_pnl_for_orders(
+    signal: ArbSignal,
+    orders: list[Order],
+    leg_probs: dict[str, float],
+    cfg: AppConfig,
+    n_scenarios: int = 2000,
+    seed: int = 42,
+) -> float:
+    """Pre-trade estimate of the full hedged-package expected PnL for a set of
+    INTENDED orders, before they are placed.
+
+    The scanner's per-contract combo edge (arbitrage_margin) is computed before the
+    hedge is sized/rounded to whole contracts, so a signal can clear that threshold
+    while the honest full-package number here is negative (rounding, per-leg fees,
+    and the AND-rule's negative convexity all bite only once the actual hedge is
+    built). This lets the controller check the real number BEFORE executing, instead
+    of only finding out after the trade is already placed.
+
+    Fees are estimated via ``taker_fee`` on each order's own price/qty -- the same
+    estimate used elsewhere before real fill fees are known; live/paper reconcile
+    the true fee once fills exist, but that's not available pre-trade.
+    """
+    combo_order = next((o for o in orders if o.instrument_type == InstrumentType.COMBO), None)
+    if combo_order is None:
+        return 0.0
+    combo_fill = Fill(
+        order_id="prospective", instrument=combo_order.instrument,
+        instrument_type=InstrumentType.COMBO, side=combo_order.side,
+        action=combo_order.action, price=combo_order.price, qty=combo_order.qty,
+        fee=taker_fee(combo_order.price, combo_order.qty, cfg.fees),
+    )
+    hedge_fills = [
+        Fill(
+            order_id="prospective", instrument=o.instrument, instrument_type=o.instrument_type,
+            side=o.side, action=o.action, price=o.price, qty=o.qty,
+            fee=taker_fee(o.price, o.qty, cfg.fees),
+        )
+        for o in orders if o is not combo_order
+    ]
+    trade = HedgedTrade(
+        signal=signal, combo_fill=combo_fill, hedge_fills=hedge_fills, leg_probs=leg_probs,
+    )
+    return simulate_pnl(trade, n_scenarios=n_scenarios, seed=seed)["expected_pnl"]

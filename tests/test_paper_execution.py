@@ -1,9 +1,15 @@
 import pytest
 
 from combo_arb.execution.paper import PaperExecutionEngine
-from combo_arb.execution.settlement import HedgedTrade, immediate_cash, simulate_pnl
+from combo_arb.execution.settlement import (
+    HedgedTrade,
+    expected_pnl_for_orders,
+    immediate_cash,
+    simulate_pnl,
+)
 from combo_arb.kalshi.mock_client import MockKalshiClient
-from combo_arb.models import InstrumentType, Order, Side
+from combo_arb.models import Fill, InstrumentType, Order, Side
+from combo_arb.pricing.fees import taker_fee
 from combo_arb.pricing.model import implied_prob
 from combo_arb.risk.risk import RiskManager
 from combo_arb.scanner.scanner import Scanner
@@ -67,3 +73,45 @@ def test_settlement_all_yes_pays_out(cfg):
     # Both legs certain YES -> combo resolves YES -> short pays 1, keeps 0.30 => -0.70
     stats = simulate_pnl(trade, n_scenarios=10, seed=1)
     assert stats["expected_pnl"] == pytest.approx(-0.70)
+
+
+def test_expected_pnl_for_orders_matches_simulate_pnl(cfg, legs, underpriced_rfq):
+    """The pre-trade EV estimate (built from intended ORDERS, before anything is
+    placed) must agree with simulate_pnl on the equivalent already-filled trade --
+    it's meant to be the same math, just computed one step earlier."""
+    sig = Scanner(MockKalshiClient(leg_prices=legs, rfqs=[underpriced_rfq]), cfg).scan()[0]
+    rm = RiskManager(cfg)
+    dec = rm.evaluate(sig, legs)
+    leg_probs = {leg.leg_ticker: implied_prob(legs[leg.leg_ticker], cfg.pricing) for leg in sig.legs}
+
+    pre_trade_ev = expected_pnl_for_orders(
+        sig, dec.all_orders, leg_probs, cfg,
+        n_scenarios=cfg.settlement_sim.n_scenarios, seed=cfg.settlement_sim.seed,
+    )
+
+    combo_fill = Fill(
+        order_id="x", instrument=dec.combo_order.instrument, instrument_type=InstrumentType.COMBO,
+        side=dec.combo_order.side, action=dec.combo_order.action, price=dec.combo_order.price,
+        qty=dec.combo_order.qty, fee=taker_fee(dec.combo_order.price, dec.combo_order.qty, cfg.fees),
+    )
+    hedge_fills = [
+        Fill(order_id="y", instrument=o.instrument, instrument_type=o.instrument_type,
+             side=o.side, action=o.action, price=o.price, qty=o.qty,
+             fee=taker_fee(o.price, o.qty, cfg.fees))
+        for o in dec.hedge_orders
+    ]
+    trade = HedgedTrade(sig, combo_fill, hedge_fills, leg_probs)
+    expected = simulate_pnl(
+        trade, n_scenarios=cfg.settlement_sim.n_scenarios, seed=cfg.settlement_sim.seed
+    )["expected_pnl"]
+
+    assert pre_trade_ev == pytest.approx(expected)
+
+
+def test_expected_pnl_for_orders_no_combo_returns_zero(cfg, legs, underpriced_rfq):
+    """A list of orders with no COMBO instrument_type (shouldn't happen in practice,
+    but must not raise) returns 0.0 rather than crashing on a missing combo fill."""
+    sig = Scanner(MockKalshiClient(leg_prices=legs, rfqs=[underpriced_rfq]), cfg).scan()[0]
+    leg_only = Order(instrument="A", instrument_type=InstrumentType.LEG, side=Side.NO,
+                     action="buy", price=0.5, qty=1)
+    assert expected_pnl_for_orders(sig, [leg_only], {}, cfg) == 0.0

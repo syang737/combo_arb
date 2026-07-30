@@ -26,8 +26,17 @@ thresholds:
   buffer_abs: 0.01          # absolute $ buffer added on top of fees
   buffer_pct: 0.005         # OR 0.5% of fair value, whichever is larger
   min_margin: 0.0           # discard signals whose net margin is below this
-  apply_buffer: false       # off for paper/exploration; auto-forced on when live is armed
+  # On by default (auto-forced on when live is armed regardless). Without a buffer,
+  # signals clearing fees by a fraction of a cent still execute and lose more often
+  # than not once real fill prices, whole-contract hedge rounding, and the AND-rule's
+  # negative convexity are accounted for.
+  apply_buffer: true
   near_miss_band: 0.05      # persist non-flagged combos within this of the threshold
+  # Reject a trade (signal-only) unless the pre-trade MODELLED full-package expected
+  # PnL (combo + every hedge leg, real prices/fees, Monte-Carlo settlement) exceeds
+  # this. Catches the gap between the scanner's per-contract combo edge (checked
+  # before the hedge is sized/rounded) and the honest number.
+  min_expected_pnl: 0.0
 
 risk:
   capital_per_trade: 100.0  # max $ notional deployed per signal
@@ -44,6 +53,12 @@ risk:
   # Reject a trade (signal-only) if any hedge leg's entry price would exceed this. A leg
   # priced near certainty buys little real hedge protection but still costs capital + fees.
   max_leg_price: 0.95
+  # Max legs in a combo we'll trade. Each leg's hedge ratio is the product of the OTHER
+  # legs' probabilities, which shrinks fast as legs are added -- past ~3 legs the fees on
+  # N hedge legs exceed the protection they buy (measured: hedging is +EV at 2 legs,
+  # ~breakeven at 3, negative at 5+), and "all but one leg hits" (the worst outcome) is
+  # often the second most likely one. Combos with more legs are signal-only.
+  max_legs: 3
 
 execution:
   live_enabled: false       # HARD GUARD. Must be true (+ mode=live + CONFIRM_LIVE_TRADING=YES) to send real orders

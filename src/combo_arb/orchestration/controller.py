@@ -21,7 +21,12 @@ from typing import Optional
 from combo_arb.config import AppConfig, Mode
 from combo_arb.execution.base import ExecutionEngine
 from combo_arb.execution.paper import PaperExecutionEngine
-from combo_arb.execution.settlement import HedgedTrade, immediate_cash, simulate_pnl
+from combo_arb.execution.settlement import (
+    HedgedTrade,
+    expected_pnl_for_orders,
+    immediate_cash,
+    simulate_pnl,
+)
 from combo_arb.kalshi.base import MarketDataClient
 from combo_arb.models import ArbSignal, InstrumentType, PnL, Position, SignalAction
 from combo_arb.orchestration.settle import sweep_settlements
@@ -210,6 +215,23 @@ class Controller:
             self._persist_signal(sig, leg_probs)
             log.info("max_trades_per_run (%d) reached; signal-only %s", cap, sig.rfq_id)
             return TradeOutcome(sig, False, "max_trades_per_run reached")
+
+        # The scanner's per-contract edge is computed before the hedge is sized/rounded
+        # to whole contracts, so it can pass while the honest full-package number (real
+        # fill prices, per-leg fees, the AND-rule's negative convexity) is negative.
+        # Check the real number BEFORE executing, not after.
+        pre_trade_ev = expected_pnl_for_orders(
+            sig, decision.all_orders, leg_probs, self.cfg,
+            n_scenarios=self.cfg.settlement_sim.n_scenarios, seed=self.cfg.settlement_sim.seed,
+        )
+        if pre_trade_ev <= self.cfg.thresholds.min_expected_pnl:
+            sig.action = SignalAction.SIGNAL_ONLY
+            self._persist_signal(sig, leg_probs)
+            log.info(
+                "signal-only %s: modelled expected PnL %.4f <= min_expected_pnl (%.4f)",
+                sig.rfq_id, pre_trade_ev, self.cfg.thresholds.min_expected_pnl,
+            )
+            return TradeOutcome(sig, False, "expected PnL below min_expected_pnl")
 
         sig.action = SignalAction.HEDGE_VIA_LEGS
         self._persist_signal(sig, leg_probs)

@@ -91,10 +91,21 @@ def test_fees_are_delta_scaled(cfg, legs, underpriced_rfq):
     assert 0 < fees < full
 
 
-def test_buffer_flag_off_by_default(cfg, legs, underpriced_rfq):
-    assert cfg.thresholds.apply_buffer is False
+def test_buffer_applied_by_default(cfg, legs, underpriced_rfq):
+    # apply_buffer defaults to True: marginal signals (edge clearing fees by a
+    # fraction of a cent) lose more often than not once real fill prices, whole-
+    # contract hedge rounding, and the AND-rule's negative convexity are accounted
+    # for, so paper's default now matches what live always enforced.
+    assert cfg.thresholds.apply_buffer is True
     res = price_combo(underpriced_rfq, legs, cfg)
-    assert res.buffer == 0.0                    # buffer not applied in paper
+    assert res.buffer > 0.0
+    assert res.flagged is True                  # this fixture's edge is large enough to clear it
+
+
+def test_buffer_can_be_disabled_explicitly(cfg, legs, underpriced_rfq):
+    cfg.thresholds.apply_buffer = False
+    res = price_combo(underpriced_rfq, legs, cfg)
+    assert res.buffer == 0.0
     assert res.flagged is True                  # flags on positive net-of-fees edge
 
 

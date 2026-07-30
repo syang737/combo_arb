@@ -100,6 +100,37 @@ def test_max_leg_price_allows_legs_under_cap(cfg, legs, underpriced_rfq):
     assert dec.approved
 
 
+def _n_leg_signal(n: int) -> ArbSignal:
+    """A combo with n legs, each priced at 0.5 (mid-book, well under max_leg_price
+    and with a large enough discount to fair to be clearly flagged) -- just enough
+    to exercise the max_legs gate in isolation from the other gates."""
+    legs = [ComboLeg(leg_ticker=f"L{i}") for i in range(n)]
+    leg_prices = {f"L{i}": LegPrice(leg_ticker=f"L{i}", best_bid=0.49, best_ask=0.51,
+                                    last_trade_price=0.5) for i in range(n)}
+    fair = 0.5 ** n
+    return ArbSignal(
+        rfq_id=f"rfq-{n}legs", mve_collection_ticker="C", legs=legs, leg_prices=leg_prices,
+        combo_quote_yes=fair * 0.5, fair_combo=fair, fees_estimate=0.001,
+        margin_threshold=0.001, arbitrage_margin=fair * 0.5 - 0.001,
+        size=100, action=SignalAction.HEDGE_VIA_LEGS,
+    )
+
+
+def test_max_legs_rejects_too_many_legs(cfg):
+    sig = _n_leg_signal(4)  # default max_legs is 3
+    rm = RiskManager(cfg)
+    dec = rm.evaluate(sig, sig.leg_prices)
+    assert not dec.approved
+    assert "max_legs" in dec.reason
+
+
+def test_max_legs_allows_legs_at_cap(cfg):
+    sig = _n_leg_signal(3)  # exactly at the default cap
+    rm = RiskManager(cfg)
+    dec = rm.evaluate(sig, sig.leg_prices)
+    assert dec.approved
+
+
 def test_max_open_signals(cfg, legs, underpriced_rfq):
     cfg.risk.max_open_signals = 0
     rm = RiskManager(cfg)

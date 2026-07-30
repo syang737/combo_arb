@@ -219,6 +219,11 @@ class RiskManager:
             return RiskDecision(False, "kill_switch engaged")
         if self.open_signals >= r.max_open_signals:
             return RiskDecision(False, "max_open_signals reached")
+        if len(signal.legs) > r.max_legs:
+            return RiskDecision(
+                False, f"{len(signal.legs)} legs exceeds max_legs ({r.max_legs}) -- "
+                       "hedge fees would exceed the protection they buy"
+            )
 
         qty, reason = self._sizing(signal, leg_prices)
         if qty <= 0:
