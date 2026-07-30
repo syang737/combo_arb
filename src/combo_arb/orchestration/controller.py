@@ -150,7 +150,7 @@ class Controller:
             self.risk.mark_signal_closed()
             # The trade's contracts resolved -> close its positions (stop showing them
             # as live exposure).
-            self._close_trade_positions(t.signal_ref, t.mve_collection_ticker)
+            self._close_trade_positions(t.signal_ref)
             # Correct cumulative equity: swap the trade-open Monte-Carlo estimate for
             # the now-known actual outcome (0 for an expired/un-fetchable trade).
             self._cum_equity += t.realized_pnl - t.expected_pnl
@@ -161,13 +161,13 @@ class Controller:
             ))
         self.db.commit()
 
-    def _close_trade_positions(self, signal_ref: str, combo_ticker: str) -> None:
+    def _close_trade_positions(self, signal_ref: str) -> None:
         """Reverse a settled/expired trade's fills out of the positions table, so it stops
         showing as live exposure mid-run (a full rebuild only happens at startup). Deletes
         rows that reach zero; upserts the rest."""
         if self.db is None:
             return
-        combo_fill, hedge_fills = self.db.get_trade_fills(signal_ref, combo_ticker)
+        combo_fill, hedge_fills = self.db.get_trade_fills(signal_ref)
         fills = ([combo_fill] if combo_fill is not None else []) + hedge_fills
         for f in fills:
             self.risk.close_fill(f)

@@ -118,9 +118,7 @@ def sweep_settlements(
                 )
             continue  # otherwise leave open; retried next sweep
 
-        combo_fill, hedge_fills = db.get_trade_fills(
-            row["signal_ref"], row["mve_collection_ticker"]
-        )
+        combo_fill, hedge_fills = db.get_trade_fills(row["signal_ref"])
         if combo_fill is None:
             log.warning(
                 "open trade %s has no combo fill on record; settling at 0 pnl",

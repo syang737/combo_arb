@@ -14,7 +14,17 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from combo_arb.models import ArbSignal, ComboRFQ, Fill, LegPrice, Order, PnL, Position, Side
+from combo_arb.models import (
+    ArbSignal,
+    ComboRFQ,
+    Fill,
+    InstrumentType,
+    LegPrice,
+    Order,
+    PnL,
+    Position,
+    Side,
+)
 
 log = logging.getLogger(__name__)
 
@@ -240,26 +250,34 @@ class Database:
         ).fetchone()
         return row["n"]
 
-    def get_trade_fills(
-        self, signal_ref: str, combo_ticker: str
-    ) -> tuple[Optional[Fill], list[Fill]]:
+    def get_trade_fills(self, signal_ref: str) -> tuple[Optional[Fill], list[Fill]]:
         """Reconstruct a trade's combo + hedge fills from the append-only orders/fills
-        log (joined on order_id -> signal_ref, since fills don't carry it directly)."""
+        log (joined on order_id -> signal_ref, since fills don't carry it directly).
+
+        Classifies combo vs. hedge by the ORDER's instrument_type (the fills table itself
+        has no such column). Do NOT classify by comparing instrument tickers -- the combo
+        order's instrument is the tradeable market_ticker, which differs from the trade's
+        mve_collection_ticker for every real Kalshi MVE combo; a prior version compared
+        against mve_collection_ticker and silently treated every real combo fill as
+        unmatched, always falling back to a $0 realized PnL at settlement.
+        """
         rows = self.conn.execute(
-            "SELECT f.* FROM fills f JOIN orders o ON o.order_id = f.order_id "
-            "WHERE o.signal_ref = ?",
+            "SELECT f.order_id AS order_id, f.instrument AS instrument, f.side AS side, "
+            "f.action AS action, f.price AS price, f.qty AS qty, f.fee AS fee, "
+            "f.ts AS ts, o.instrument_type AS instrument_type "
+            "FROM fills f JOIN orders o ON o.order_id = f.order_id WHERE o.signal_ref = ?",
             (signal_ref,),
         ).fetchall()
         fills = [
             Fill(
                 order_id=r["order_id"], instrument=r["instrument"], side=Side(r["side"]),
                 action=r["action"], price=r["price"], qty=r["qty"], fee=r["fee"],
-                timestamp=r["ts"],
+                timestamp=r["ts"], instrument_type=InstrumentType(r["instrument_type"]),
             )
             for r in rows
         ]
-        combo_fill = next((f for f in fills if f.instrument == combo_ticker), None)
-        hedge_fills = [f for f in fills if f.instrument != combo_ticker]
+        combo_fill = next((f for f in fills if f.instrument_type == InstrumentType.COMBO), None)
+        hedge_fills = [f for f in fills if f.instrument_type != InstrumentType.COMBO]
         return combo_fill, hedge_fills
 
     def settle_open_trade(

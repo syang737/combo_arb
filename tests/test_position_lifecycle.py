@@ -21,7 +21,13 @@ def test_close_fill_reverses_position(cfg):
 
 
 def _seed_trade(db, signal_ref, combo, legs, status="open", opened_ts=100.0):
-    """One trade: combo buy + leg buys, with matching positions, at the given status."""
+    """One trade: combo buy + leg buys, with matching positions, at the given status.
+
+    ``combo`` is used as the order's instrument (the tradeable market_ticker); the trade's
+    mve_collection_ticker is deliberately a DIFFERENT string (as it is for every real Kalshi
+    MVE combo), so these tests exercise the real-world ticker mismatch rather than the
+    coincidentally-matching strings earlier fixtures used.
+    """
     db.insert_order(Order(instrument=combo, instrument_type=InstrumentType.COMBO, side=Side.YES,
                           action="buy", price=0.1, qty=10, signal_ref=signal_ref, order_id=signal_ref + "-c"))
     db.insert_fill(Fill(order_id=signal_ref + "-c", instrument=combo, instrument_type=InstrumentType.COMBO,
@@ -32,8 +38,8 @@ def _seed_trade(db, signal_ref, combo, legs, status="open", opened_ts=100.0):
                               order_id=f"{signal_ref}-l{i}"))
         db.insert_fill(Fill(order_id=f"{signal_ref}-l{i}", instrument=leg, side=Side.NO,
                             action="buy", price=0.5, qty=qty, fee=0.0))
-    db.insert_open_trade(signal_ref=signal_ref, mve_collection_ticker=combo, legs_json="[]",
-                         opened_ts=opened_ts, expected_pnl=0.0)
+    db.insert_open_trade(signal_ref=signal_ref, mve_collection_ticker=combo + "-COLLECTION",
+                         legs_json="[]", opened_ts=opened_ts, expected_pnl=0.0)
     if status != "open":
         db.settle_open_trade(signal_ref, settled_ts=opened_ts + 1, realized_pnl=0.0)
 
