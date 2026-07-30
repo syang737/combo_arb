@@ -41,6 +41,9 @@ risk:
   # executed partially hedged). Lower = hedge more legs (needs larger size); higher = allow
   # skipping tiny-delta legs so more combos trade.
   min_hedge_delta: 0.01
+  # Reject a trade (signal-only) if any hedge leg's entry price would exceed this. A leg
+  # priced near certainty buys little real hedge protection but still costs capital + fees.
+  max_leg_price: 0.95
 
 execution:
   live_enabled: false       # HARD GUARD. Must be true (+ mode=live + CONFIRM_LIVE_TRADING=YES) to send real orders

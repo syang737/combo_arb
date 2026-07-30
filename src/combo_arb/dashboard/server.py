@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Optional
 from urllib.parse import parse_qs, urlparse
 
 from combo_arb.monitoring import queries
@@ -48,6 +50,21 @@ def _clamp_limit(qs: dict, default: int) -> int:
     return max(1, min(n, _MAX_LIMIT))
 
 
+_MAX_HISTORY_DAYS = 365
+
+
+def _since_ts(qs: dict) -> Optional[float]:
+    """?days=N -> a unix timestamp cutoff N days ago; absent/invalid -> None (no cutoff)."""
+    try:
+        days = float(qs.get("days", [None])[0])
+    except (TypeError, ValueError):
+        return None
+    if days <= 0:
+        return None
+    days = min(days, _MAX_HISTORY_DAYS)
+    return time.time() - days * 86400.0
+
+
 def _dispatch_api(path: str, qs: dict, db_path: str):
     """Route an /api/* path to a query function. Returns a JSON-able object or None (404)."""
     if path == "/api/overview":
@@ -56,7 +73,9 @@ def _dispatch_api(path: str, qs: dict, db_path: str):
         return queries.market_names_map(db_path)
     if path == "/api/trades-grouped":
         closed = qs.get("status", ["open"])[0] == "closed"
-        return queries.trades_grouped(db_path, closed=closed, limit=_clamp_limit(qs, 50))
+        return queries.trades_grouped(
+            db_path, closed=closed, limit=_clamp_limit(qs, 200), since_ts=_since_ts(qs),
+        )
     if path == "/api/signals":
         return queries.recent_signals(db_path, _clamp_limit(qs, 25))
     if path == "/api/fills":

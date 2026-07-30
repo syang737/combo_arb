@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import urllib.error
 import urllib.request
 
 import pytest
 
-from combo_arb.dashboard.server import build_overview, make_server
+from combo_arb.dashboard.server import _since_ts, build_overview, make_server
 from combo_arb.models import Fill, InstrumentType, Order, PnL, Position, Side
 from combo_arb.monitoring import queries
 from combo_arb.persistence.db import Database
@@ -121,6 +122,19 @@ def test_api_trades_grouped_endpoint(server):
     data = json.loads(body)
     t = next(t for t in data if t["signal_ref"] == "t-open")
     assert t["combo"]["instrument"] == "C1" and t["combo"]["qty"] == 10
+
+
+def test_since_ts_converts_days_to_cutoff():
+    now = time.time()
+    cutoff = _since_ts({"days": ["3"]})
+    assert cutoff == pytest.approx(now - 3 * 86400.0, abs=2.0)
+
+
+def test_since_ts_absent_or_invalid_returns_none():
+    assert _since_ts({}) is None
+    assert _since_ts({"days": ["not-a-number"]}) is None
+    assert _since_ts({"days": ["0"]}) is None
+    assert _since_ts({"days": ["-5"]}) is None
 
 
 def test_unknown_api_is_404(server):

@@ -149,7 +149,9 @@ function tradeCard(t) {
   const closed = t.status !== "open";
   const pnl = closed ? t.realized_pnl : t.expected_pnl;
   const pnlLabel = closed ? "realized" : "est.";
-  const when = closed ? ("closed " + fmtTime(t.settled_iso)) : ("opened " + fmtTime(t.opened_iso));
+  const when = closed
+    ? (`opened ${fmtTime(t.opened_iso)} · closed ${fmtTime(t.settled_iso)}`)
+    : (`opened ${fmtTime(t.opened_iso)}`);
   // On settled cards, show the trade-time estimate next to the realized number.
   const est = (closed && t.expected_pnl !== null && t.expected_pnl !== undefined)
     ? `<span class="muted">est ${money(t.expected_pnl)}</span>` : "";
@@ -248,9 +250,10 @@ async function refreshOverview() {
 }
 
 async function refreshTables() {
+  const historyDays = $("history-range").value;
   const [openTrades, history, signals, fills, nearMiss] = await Promise.all([
     fetchJSON("/api/trades-grouped?status=open&limit=50"),
-    fetchJSON("/api/trades-grouped?status=closed&limit=50"),
+    fetchJSON(`/api/trades-grouped?status=closed&limit=200&days=${historyDays}`),
     fetchJSON("/api/signals?limit=25"),
     fetchJSON("/api/fills?limit=25"),
     fetchJSON("/api/near-misses?limit=25"),
@@ -311,5 +314,8 @@ function schedule() {
 
 $("refresh-btn").addEventListener("click", refreshAll);
 $("autorefresh").addEventListener("change", schedule);
+$("history-range").addEventListener("change", () => {
+  refreshTables().catch((e) => { $("last-refresh").textContent = String(e); });
+});
 refreshAll();
 schedule();

@@ -231,6 +231,18 @@ class RiskManager:
 
         combo_order, hedge_orders = self.hedge_model.build(signal, qty, leg_prices, self.cfg)
 
+        # Reject legs priced too close to certainty -- little real hedge value left,
+        # but still costs capital + fees. Applied after sizing/build since that's where
+        # each leg's actual entry (transaction) price is computed.
+        overpriced = [o for o in hedge_orders if o.price > r.max_leg_price]
+        if overpriced:
+            worst = max(overpriced, key=lambda o: o.price)
+            return RiskDecision(
+                False,
+                f"leg {worst.instrument} priced {worst.price:.3f} exceeds "
+                f"max_leg_price ({r.max_leg_price})",
+            )
+
         # Per-market position cap check (projected).
         for od in hedge_orders:
             projected = abs(self._projected_net(od))

@@ -271,13 +271,17 @@ def _combo_resolved_yes(legs_json, outcomes: dict):
     return True
 
 
-def trades_grouped(path: str, closed: bool = False, limit: int = 50) -> list[dict]:
+def trades_grouped(
+    path: str, closed: bool = False, limit: int = 50, since_ts: Optional[float] = None,
+) -> list[dict]:
     """Trades grouped as combo + its hedge legs (one entry per trade / signal_ref).
 
     ``closed=False`` returns still-open trades (oldest first); ``closed=True`` returns
-    settled + expired history (most recently closed first). Each fill is classified as
-    combo vs leg by its order's ``instrument_type`` (robust to ticker naming), joined
-    ``fills`` -> ``orders`` on ``order_id``."""
+    settled + expired history (most recently closed first), optionally restricted to
+    ``settled_ts >= since_ts`` (unbounded history otherwise grows forever, so the
+    dashboard defaults to a recent window). Each fill is classified as combo vs leg by
+    its order's ``instrument_type`` (robust to ticker naming), joined ``fills`` ->
+    ``orders`` on ``order_id``."""
     conn = _connect_ro(path)
     if conn is None:
         return [_missing(path)]
@@ -285,12 +289,18 @@ def trades_grouped(path: str, closed: bool = False, limit: int = 50) -> list[dic
         statuses = ("settled", "expired") if closed else ("open",)
         marks = ",".join("?" * len(statuses))
         order_by = "settled_ts DESC" if closed else "opened_ts ASC"
+        params: list = [*statuses]
+        since_clause = ""
+        if closed and since_ts is not None:
+            since_clause = " AND settled_ts >= ?"
+            params.append(since_ts)
+        params.append(limit)
         try:
             trades = conn.execute(
                 f"SELECT signal_ref, mve_collection_ticker, status, opened_ts, settled_ts, "
                 f"expected_pnl, realized_pnl, legs_json, outcomes_json FROM open_trades "
-                f"WHERE status IN ({marks}) ORDER BY {order_by} LIMIT ?",
-                (*statuses, limit)).fetchall()
+                f"WHERE status IN ({marks}){since_clause} ORDER BY {order_by} LIMIT ?",
+                params).fetchall()
         except sqlite3.OperationalError:
             return []
         out: list[dict] = []

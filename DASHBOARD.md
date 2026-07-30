@@ -21,13 +21,20 @@ beside the engine on the 512 MB box.
 | PnL tiles + equity curve (time + equity axes) | `pnl_summary`, `pnl_series` |
 | Open-trade tiles (open/settled/expired, oldest) | `open_trades_summary` |
 | Open trades — grouped as combo + hedge legs | `trades_grouped(closed=False)` |
-| Trade history — grouped, settled + expired | `trades_grouped(closed=True)` |
+| Trade history — grouped, settled + expired (windowed to 3/7/30 days) | `trades_grouped(closed=True, since_ts=...)` |
 | Arb signals | `recent_signals` |
 | Recent fills | `recent_fills` |
 | Positions (flat net exposure per instrument) | `open_positions` |
 | Near-misses (closest to an edge) | `top_near_misses` |
 
 The page auto-refreshes every 10s (toggle in the header).
+
+### Trade history window
+
+Trade history grows without bound over time, so it defaults to the **last 3 days**;
+switch to 7 or 30 days with the dropdown next to the Trade History header. Open trades
+always show in full regardless (they don't have a settlement date to window on, and
+there are far fewer of them at any given time).
 
 ### Contract names
 

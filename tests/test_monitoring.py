@@ -178,6 +178,33 @@ def test_trades_grouped(tmp_path):
     assert tr["mode"] == "paper"
 
 
+def test_trades_grouped_since_ts_filters_history(tmp_path):
+    """Trade history can be windowed to a recent period (settled_ts >= since_ts) so it
+    doesn't grow unbounded; the still-open path ignores since_ts (it has no settled_ts
+    to filter on -- open trades never disappear from that view)."""
+    path = str(tmp_path / "range.db")
+    db = Database(path)
+    for i, (signal_ref, settled_ts) in enumerate([("old", 100.0), ("recent", 900.0)]):
+        combo = f"C{i}"
+        db.insert_order(Order(instrument=combo, instrument_type=InstrumentType.COMBO,
+                              side=Side.YES, action="buy", price=0.1, qty=1,
+                              signal_ref=signal_ref, order_id=signal_ref + "-c"))
+        db.insert_fill(Fill(order_id=signal_ref + "-c", instrument=combo,
+                            instrument_type=InstrumentType.COMBO, side=Side.YES,
+                            action="buy", price=0.1, qty=1, fee=0.0))
+        db.insert_open_trade(signal_ref=signal_ref, mve_collection_ticker=combo,
+                             legs_json="[]", opened_ts=settled_ts - 10, expected_pnl=0.0)
+        db.settle_open_trade(signal_ref, settled_ts=settled_ts, realized_pnl=0.1)
+    db.commit()
+    db.close()
+
+    all_history = queries.trades_grouped(path, closed=True)
+    assert {t["signal_ref"] for t in all_history} == {"old", "recent"}
+
+    windowed = queries.trades_grouped(path, closed=True, since_ts=500.0)
+    assert {t["signal_ref"] for t in windowed} == {"recent"}
+
+
 def test_trades_grouped_closed_outcomes(tmp_path):
     path = str(tmp_path / "grpc.db")
     db = Database(path)

@@ -1,7 +1,7 @@
 import pytest
 
 from combo_arb.kalshi.mock_client import MockKalshiClient
-from combo_arb.models import Side
+from combo_arb.models import ArbSignal, ComboLeg, LegPrice, Side, SignalAction
 from combo_arb.risk.risk import DeltaHedgeModel, RiskManager, leg_deltas
 from combo_arb.scanner.scanner import Scanner
 
@@ -65,6 +65,39 @@ def test_full_hedge_sizes_up(cfg, legs, underpriced_rfq):
     qtys = {o.instrument: o.qty for o in dec.hedge_orders}
     assert len(dec.hedge_orders) == 2
     assert qtys["A"] >= 1 and qtys["B"] >= 1  # nothing dropped
+
+
+def test_max_leg_price_rejects_overpriced_leg(cfg):
+    # RiskManager.evaluate() tested directly against a hand-built (already-flagged)
+    # signal, rather than routing through the scanner -- an extreme leg price would
+    # collapse the fair value and stop the scanner from flagging it as underpriced in
+    # the first place, which isn't what this test is about.
+    #
+    # Leg A's NO-hedge entry price = 1 - yes_bid = 1 - 0.01 = 0.99, over the default
+    # 0.95 cap -- nearly certain, so hedging it buys almost no real protection.
+    leg_prices = {
+        "A": LegPrice(leg_ticker="A", best_bid=0.01, best_ask=0.03, last_trade_price=0.02),
+        "B": LegPrice(leg_ticker="B", best_bid=0.39, best_ask=0.41, last_trade_price=0.40),
+    }
+    sig = ArbSignal(
+        rfq_id="rfq-cap", mve_collection_ticker="COMBO_AB",
+        legs=[ComboLeg(leg_ticker="A"), ComboLeg(leg_ticker="B")],
+        leg_prices=leg_prices, combo_quote_yes=0.001, fair_combo=0.008,
+        fees_estimate=0.001, margin_threshold=0.001, arbitrage_margin=0.006,
+        size=20, action=SignalAction.HEDGE_VIA_LEGS,
+    )
+    rm = RiskManager(cfg)
+    dec = rm.evaluate(sig, leg_prices)
+    assert not dec.approved
+    assert "max_leg_price" in dec.reason and "A" in dec.reason
+
+
+def test_max_leg_price_allows_legs_under_cap(cfg, legs, underpriced_rfq):
+    # Default fixture legs (NO prices 0.51, 0.61) are both comfortably under 0.95.
+    sig = _signal(cfg, legs, underpriced_rfq)
+    rm = RiskManager(cfg)
+    dec = rm.evaluate(sig, legs)
+    assert dec.approved
 
 
 def test_max_open_signals(cfg, legs, underpriced_rfq):

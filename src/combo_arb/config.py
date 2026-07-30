@@ -80,6 +80,12 @@ class RiskConfig(BaseModel):
     # emitted signal-only rather than executed partially hedged. Legs below this
     # delta are treated as immaterial (a negligible sliver of residual risk).
     min_hedge_delta: float = 0.01
+    # Reject a trade (signal-only) if any hedge leg's entry price would exceed this.
+    # A leg priced above ~0.95 is nearly certain to resolve as the market already
+    # expects: hedging it buys very little real protection (there's almost no room
+    # left for its probability to move against the combo) while still tying up
+    # capital and paying a fee on it.
+    max_leg_price: float = 0.95
 
 
 class ExecutionConfig(BaseModel):
