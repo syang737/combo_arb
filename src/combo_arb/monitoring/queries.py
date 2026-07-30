@@ -236,6 +236,19 @@ def market_names_map(path: str) -> dict:
         conn.close()
 
 
+def _position_paid(side: str, resolved_yes: Optional[bool]) -> Optional[bool]:
+    """Did THIS position actually pay out, given how the underlying market resolved?
+
+    Distinct from the raw market result: ``resolved_yes`` is just the fact of which way
+    the underlying event went. Whether a given fill profited also depends on which side
+    of it we hold -- a NO position pays when the market resolves NO, not YES. Hedge legs
+    can be held either side (buy_yes flips with the delta's sign; see risk.py
+    _leg_buy_yes), so the market result alone doesn't tell you whether a leg won."""
+    if resolved_yes is None:
+        return None
+    return resolved_yes if side == "yes" else (not resolved_yes)
+
+
 def _combo_resolved_yes(legs_json, outcomes: dict):
     """Did the (bought-YES) combo pay? Combo resolves YES iff every selected leg resolves
     in the combo's favour (YES-side leg -> underlying YES; NO-side leg -> underlying NO).
@@ -288,16 +301,25 @@ def trades_grouped(path: str, closed: bool = False, limit: int = 50) -> list[dic
                 outcomes = {}
             fills = conn.execute(
                 "SELECT o.instrument AS instrument, o.instrument_type AS itype, o.side AS side, "
-                "o.action AS action, f.price AS price, f.qty AS qty, f.fee AS fee "
-                "FROM fills f JOIN orders o ON o.order_id = f.order_id WHERE o.signal_ref = ?",
+                "o.action AS action, o.mode AS mode, f.price AS price, f.qty AS qty, "
+                "f.fee AS fee FROM fills f JOIN orders o ON o.order_id = f.order_id "
+                "WHERE o.signal_ref = ?",
                 (t["signal_ref"],)).fetchall()
             combo = None
             legs: list[dict] = []
+            total_fees = 0.0
+            mode = None
             for r in fills:
+                resolved_yes = outcomes.get(r["instrument"])
                 leg = {"instrument": r["instrument"], "side": r["side"], "action": r["action"],
                        "qty": r["qty"], "price": r["price"], "fee": r["fee"],
-                       # how the underlying actually resolved (None if unknown / combo row)
-                       "resolved_yes": outcomes.get(r["instrument"])}
+                       # how the underlying actually resolved (the raw market result --
+                       # NOT whether this position paid; see paid below)
+                       "resolved_yes": resolved_yes,
+                       "paid": _position_paid(r["side"], resolved_yes)}
+                total_fees += r["fee"] or 0.0
+                if mode is None:
+                    mode = r["mode"]
                 if r["itype"] == "combo" and combo is None:
                     combo = leg
                 else:
@@ -311,6 +333,10 @@ def trades_grouped(path: str, closed: bool = False, limit: int = 50) -> list[dic
                 "expected_pnl": t["expected_pnl"],
                 "realized_pnl": t["realized_pnl"],
                 "combo_resolved_yes": _combo_resolved_yes(t["legs_json"], outcomes),
+                # "paper" -> fees are the estimated formula; "live" -> fees are the real
+                # amount Kalshi charged, reconciled from /portfolio/fills at execution time.
+                "mode": mode,
+                "total_fees": total_fees,
                 "combo": combo,
                 "legs": legs,
             })

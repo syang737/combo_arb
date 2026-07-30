@@ -108,20 +108,32 @@ function drawEquity(series) {
 // -- grouped trade cards ------------------------------------------------------
 const statusBadge = (s) => `<span class="badge ${s}">${s}</span>`;
 
-function resBadge(r) {
-  if (r === true) return `<span class="res yes">YES</span>`;
-  if (r === false) return `<span class="res no">NO</span>`;
+// The raw market result (did the underlying event resolve yes/no) -- shown small and
+// muted, since it is NOT the same as whether this position paid (see paidBadge).
+function marketBadge(resolvedYes) {
+  if (resolvedYes === true) return `<span class="mkt">mkt yes</span>`;
+  if (resolvedYes === false) return `<span class="mkt">mkt no</span>`;
+  return "";
+}
+
+// The verdict: did this specific fill's position actually pay out. A NO position pays
+// when the market resolves NO, not YES -- so this can differ from the market result.
+function paidBadge(paid) {
+  if (paid === true) return `<span class="res yes">WON</span>`;
+  if (paid === false) return `<span class="res no">LOST</span>`;
   return "";
 }
 
 function legRow(l, opts = {}) {
   const cls = opts.combo ? "leg combo-fill" : "leg";
   const tag = opts.combo ? `<span class="tag">COMBO</span>` : "";
+  const feeStr = (l.fee === null || l.fee === undefined) ? "" : ` · fee ${money(l.fee)}`;
   return `<div class="${cls}">
     <span class="leg-name">${tag}${namedCell(l.instrument)}</span>
     <span class="leg-dir">${l.action}/${l.side}</span>
-    <span class="leg-num">${l.qty} @ ${num(l.price, 3)}</span>
-    <span class="leg-res">${resBadge(l.resolved_yes)}</span>
+    <span class="leg-num">${l.qty} @ ${num(l.price, 3)}${feeStr}</span>
+    <span class="leg-mkt">${marketBadge(l.resolved_yes)}</span>
+    <span class="leg-res">${paidBadge(l.paid)}</span>
   </div>`;
 }
 
@@ -142,17 +154,25 @@ function tradeCard(t) {
   const est = (closed && t.expected_pnl !== null && t.expected_pnl !== undefined)
     ? `<span class="muted">est ${money(t.expected_pnl)}</span>` : "";
   // The combo's own fill (side is always YES -- combos are only ever bought/sold YES,
-  // never NO; hedge legs below are the ones that go short via buy/no).
+  // never NO; hedge legs below are the ones that go short via buy/no). Its resolved_yes
+  // AND paid both come from combo_resolved_yes (the AND-rule result), not a lookup by
+  // the combo's own ticker -- outcomes is keyed by LEG tickers only.
   const comboRow = t.combo
-    ? legRow({ ...t.combo, resolved_yes: t.combo_resolved_yes }, { combo: true })
+    ? legRow({ ...t.combo, resolved_yes: t.combo_resolved_yes, paid: t.combo_resolved_yes }, { combo: true })
     : `<div class="leg combo-fill muted">no combo fill recorded</div>`;
   const legs = (t.legs || []).map((l) => legRow(l)).join("") || `<div class="leg muted">no leg fills recorded</div>`;
+  const feesLine = (() => {
+    if (t.total_fees === null || t.total_fees === undefined) return "";
+    const qualifier = t.mode === "live" ? "actual" : t.mode === "paper" ? "estimated (paper)" : "";
+    return `<span class="muted">fees ${money(t.total_fees)}${qualifier ? " · " + qualifier : ""}</span>`;
+  })();
   return `<div class="trade-card">
     <div class="trade-head">
       <div class="trade-title">${namedCell(comboTicker)} ${statusBadge(t.status)} ${comboOutcome(t)}</div>
       <div class="trade-meta">
         <span class="${signClass(pnl)}">${pnl === null || pnl === undefined ? "—" : money(pnl)} <span class="muted">${pnlLabel}</span></span>
         ${est}
+        ${feesLine}
         <span class="muted">${when}</span>
       </div>
     </div>

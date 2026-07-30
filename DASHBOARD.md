@@ -61,6 +61,32 @@ fills** table also now shows a `type` column (`combo`/`leg`) for the same reason
 - **expired** — a leg became permanently un-fetchable (delisted); the trade was force-closed and
   its realized PnL is unknown (no outcome badges — the resolutions were never confirmed).
 
+### Market result vs. WON/LOST
+
+Each settled leg shows **two** distinct indicators, deliberately kept separate:
+
+- `mkt yes` / `mkt no` (small, muted) — the raw fact of how the **underlying market**
+  resolved. This is Kalshi's result, nothing more.
+- **WON** / **LOST** (colored pill) — whether **this specific position** actually paid
+  out. These are *not* the same thing: hedge legs can be held on either side (a leg's
+  `buy/yes` vs `buy/no` depends on the sign of its hedge delta), so a market resolving
+  YES means a `buy/yes` position **won** but a `buy/no` position on that same market
+  **lost**. Always read the colored WON/LOST badge for profitability — the small `mkt`
+  tag is just the underlying fact, shown for anyone who wants to verify the math.
+
+### Fees (`fee $X.XX` per leg, `fees $X.XX` per trade)
+
+Each leg/combo row and the trade card header now show fees. The qualifier next to the
+trade total tells you where the number came from:
+
+- **`estimated (paper)`** — paper mode never talks to Kalshi's fee schedule; the number
+  is `pricing/fees.py`'s formula (`ceil(0.07·p·(1−p)·qty·100)/100` taker, 25% for maker).
+- **`actual`** — live mode reconciles the *real* fee Kalshi charged from
+  `/portfolio/fills` (`execution/live.py`'s `_reconcile`), falling back to the formula
+  only if Kalshi's response omits a fee field. No code change is needed to get real fees
+  in production — the live execution path already captures them; this just surfaces
+  what was already being recorded.
+
 ### Fixing historical realized PnL (`combo-arb backfill-pnl`)
 
 An earlier bug (fixed) made `get_trade_fills` misclassify the combo fill by comparing

@@ -172,6 +172,10 @@ def test_trades_grouped(tmp_path):
     assert tr["combo"]["instrument"] == "C" and tr["combo"]["qty"] == 10
     assert len(tr["legs"]) == 1 and tr["legs"][0]["instrument"] == "A"
     assert queries.trades_grouped(path, closed=True) == []   # nothing closed yet
+    # fees roll up across combo (0.02) + leg (0.01), and mode is carried from the orders
+    # (Order.mode defaults to "paper") so the UI can label estimated vs. actual fees.
+    assert tr["total_fees"] == pytest.approx(0.03)
+    assert tr["mode"] == "paper"
 
 
 def test_trades_grouped_closed_outcomes(tmp_path):
@@ -205,6 +209,12 @@ def test_trades_grouped_closed_outcomes(tmp_path):
     assert tr["combo_resolved_yes"] is False
     res = {l["instrument"]: l["resolved_yes"] for l in tr["legs"]}
     assert res == {"A": True, "B": False}
+    # Both legs are held NO (hedges): "paid" (did the position win) is the OPPOSITE of
+    # the raw market result -- this is the exact distinction that can't be read off
+    # resolved_yes alone. A resolved YES (market fact) but the NO position LOSES;
+    # B resolved NO but the NO position WINS.
+    paid = {l["instrument"]: l["paid"] for l in tr["legs"]}
+    assert paid == {"A": False, "B": True}
 
 
 def test_missing_db_returns_error(tmp_path):

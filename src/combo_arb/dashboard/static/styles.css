@@ -83,12 +83,19 @@ main {
 .trade-title { font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .trade-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .trade-legs { display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--border); padding-top: 7px; }
-.leg { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; font-size: 12px; align-items: baseline; }
+.leg { display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 8px; font-size: 12px; align-items: baseline; }
 .leg-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .leg-dir { color: var(--muted); font-size: 11px; }
-.leg-num { font-variant-numeric: tabular-nums; color: var(--text); }
-.leg-res { min-width: 34px; text-align: right; }
+.leg-num { font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap; }
+.leg-mkt { min-width: 44px; text-align: right; }
+.leg-res { min-width: 36px; text-align: right; }
 
+/* Raw market result (fact) -- small and muted, deliberately less prominent than the
+   WON/LOST verdict below, since the two can differ (a NO position wins when the
+   market resolves NO). */
+.mkt { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; }
+
+/* WON/LOST verdict for a position -- the prominent, colored call. */
 .res { padding: 1px 6px; border-radius: 999px; font-size: 10.5px; font-weight: 700; letter-spacing: .3px; }
 .res.yes { background: rgba(63,185,80,.16); color: var(--pos); }
 .res.no { background: rgba(248,81,73,.16); color: var(--neg); }
