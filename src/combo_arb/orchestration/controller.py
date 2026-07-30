@@ -72,6 +72,10 @@ class Controller:
         self._executed_count = 0  # trades executed this process (for max_trades_per_run)
         self._last_settlement_check = 0.0
         if self.db is not None:
+            # Continue the equity curve from where it left off -- without this, every
+            # restart (e.g. a redeploy) reset cumulative equity to 0.0, creating a
+            # discontinuity in the persisted curve even though nothing was actually lost.
+            self._cum_equity = self.db.last_equity()
             # Restore risk state so a process restart doesn't forget what's still
             # outstanding (previously both reset to empty on every restart).
             self.risk.hydrate_open_signals(self.db.count_open_trades())

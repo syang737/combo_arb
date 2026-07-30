@@ -211,6 +211,24 @@ class Database:
             (pnl.timestamp, pnl.realized, pnl.unrealized, pnl.equity),
         )
 
+    def last_equity(self) -> float:
+        """The most recently recorded cumulative equity value (0.0 if no pnl rows yet).
+        Used to hydrate a fresh process's running equity so a restart doesn't reset the
+        equity curve back to zero."""
+        row = self.conn.execute("SELECT equity FROM pnl ORDER BY ts DESC LIMIT 1").fetchone()
+        return row["equity"] if row is not None else 0.0
+
+    def replace_pnl_history(self, rows: list[tuple[float, float, float, float]]) -> None:
+        """Replace the ENTIRE pnl table with a recomputed (ts, realized, unrealized,
+        equity) event log. Used only by the pnl-rebuild backfill, since the pnl table
+        has no link back to the trade that produced each row -- every row is regenerable
+        from open_trades + fills, and nothing else writes to this table (verified: only
+        Controller writes pnl rows, and only ever alongside an open_trades row)."""
+        self.conn.execute("DELETE FROM pnl")
+        self.conn.executemany(
+            "INSERT INTO pnl(ts, realized, unrealized, equity) VALUES (?,?,?,?)", rows
+        )
+
     def insert_open_trade(
         self,
         signal_ref: str,
@@ -243,6 +261,21 @@ class Database:
         return self.conn.execute(
             "SELECT * FROM open_trades WHERE status='open'"
         ).fetchall()
+
+    def get_all_trades(self) -> list[sqlite3.Row]:
+        """Every trade regardless of status, oldest first -- the full lifecycle log used
+        to rebuild pnl history from source data."""
+        return self.conn.execute(
+            "SELECT * FROM open_trades ORDER BY opened_ts ASC"
+        ).fetchall()
+
+    def update_trade_realized_pnl(self, signal_ref: str, realized_pnl: float) -> None:
+        """Correct a settled trade's realized_pnl in place (status/settled_ts unchanged).
+        Used by the pnl-rebuild backfill; not part of the normal settlement path."""
+        self.conn.execute(
+            "UPDATE open_trades SET realized_pnl=? WHERE signal_ref=?",
+            (realized_pnl, signal_ref),
+        )
 
     def count_open_trades(self) -> int:
         row = self.conn.execute(

@@ -61,6 +61,27 @@ fills** table also now shows a `type` column (`combo`/`leg`) for the same reason
 - **expired** — a leg became permanently un-fetchable (delisted); the trade was force-closed and
   its realized PnL is unknown (no outcome badges — the resolutions were never confirmed).
 
+### Fixing historical realized PnL (`combo-arb backfill-pnl`)
+
+An earlier bug (fixed) made `get_trade_fills` misclassify the combo fill by comparing
+tickers, which always failed for real Kalshi MVE combos — so every settled trade's
+realized PnL was wrongly recorded as `$0.00` regardless of the true outcome. Trades that
+settle after the fix compute correctly on their own, but already-settled rows keep the
+wrong number until backfilled. Run this **once**, with the engine container stopped
+(nothing else should write to the DB while it runs):
+
+```bash
+docker stop combo-arb   # avoid concurrent writes during the backfill
+docker run --rm -v ~/combo_arb/data:/data ghcr.io/syang737/combo_arb:latest \
+  combo-arb backfill-pnl --db /data/combo_arb.db
+docker start combo-arb
+```
+
+It recomputes each settled trade's realized PnL from its stored leg outcomes (already
+persisted — no Kalshi API calls needed) and **rebuilds the entire PnL event log**, so the
+equity curve and PnL tiles reflect the corrections too, not just the Trade History cards.
+Idempotent — safe to re-run.
+
 ## Run it on the instance (second container)
 
 ```bash

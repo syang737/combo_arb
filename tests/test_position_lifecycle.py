@@ -4,10 +4,34 @@ collapses the historical blotter to only live exposure."""
 from __future__ import annotations
 
 from combo_arb.kalshi.mock_client import MockKalshiClient
-from combo_arb.models import Fill, InstrumentType, Order, Position, Side
+from combo_arb.models import Fill, InstrumentType, Order, PnL, Position, Side
 from combo_arb.orchestration.controller import Controller
 from combo_arb.persistence.db import Database
 from combo_arb.risk.risk import RiskManager
+
+
+def test_controller_hydrates_equity_from_db(tmp_path, cfg):
+    """A restart must continue the equity curve, not reset it to 0 -- otherwise every
+    redeploy creates a discontinuity in the persisted equity even though nothing about
+    the underlying trades actually changed."""
+    path = str(tmp_path / "eq.db")
+    db = Database(path)
+    db.insert_pnl(PnL(realized=1.0, unrealized=0.5, equity=42.75, timestamp=100.0))
+    db.commit()
+
+    controller = Controller(cfg, MockKalshiClient(), db=db)
+
+    assert controller._cum_equity == 42.75
+
+
+def test_controller_defaults_equity_to_zero_with_no_history(tmp_path, cfg):
+    path = str(tmp_path / "eq2.db")
+    db = Database(path)
+    db.commit()
+
+    controller = Controller(cfg, MockKalshiClient(), db=db)
+
+    assert controller._cum_equity == 0.0
 
 
 def test_close_fill_reverses_position(cfg):

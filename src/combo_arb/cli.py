@@ -169,6 +169,35 @@ def gen_sample(
     typer.echo(f"Wrote {n} frames to {out}")
 
 
+@app.command("backfill-pnl")
+def backfill_pnl(
+    config: Optional[str] = typer.Option(None, help="Path to config YAML (for db_path)"),
+    db_path: Optional[str] = typer.Option(None, "--db", help="Path to combo_arb.db (overrides config)"),
+) -> None:
+    """One-time fix: recompute realized PnL for trades settled before the combo-fill
+    classification bug fix, and rebuild the pnl history so PnL tiles/equity curve
+    (dashboard) match the corrected numbers. Safe to re-run (idempotent); make sure
+    nothing else is writing to the DB while this runs (stop the engine container first)."""
+    configure_logging("INFO")
+    from combo_arb.orchestration.backfill import rebuild_history
+    from combo_arb.persistence.db import Database
+
+    path = db_path or _load_cfg(config).persistence.db_path
+    typer.echo(f"Backfilling PnL history in {path} ...")
+    db = Database(path)
+    report = rebuild_history(db)
+    db.close()
+    typer.echo(
+        f"Scanned {report.trades_scanned} trade(s); corrected realized_pnl on "
+        f"{report.realized_pnl_corrected}; rebuilt {report.pnl_rows_written} pnl row(s)."
+    )
+    if report.skipped_missing_fills or report.skipped_missing_outcomes:
+        typer.echo(
+            f"Skipped: {report.skipped_missing_fills} missing fills, "
+            f"{report.skipped_missing_outcomes} missing outcomes (left as recorded)."
+        )
+
+
 @app.command()
 def dashboard(
     config: Optional[str] = typer.Option(None, help="Path to config YAML (for db_path)"),
