@@ -36,6 +36,17 @@ table, populated by the scanner/controller) and the dashboard shows those instea
 tickers, with the ticker on hover. Names populate **going forward** — a contract shows its
 raw ticker until the engine sees it again after this update is deployed.
 
+### Combo side (always YES)
+
+Kalshi only exposes a directly tradeable YES side for these combo markets — the engine
+never buys or sells a combo's NO side (enforced in `risk/risk.py`'s `DeltaHedgeModel`,
+which always builds the combo order with `side=YES`; only the *action* — buy vs. sell —
+changes with strategy direction). Each trade card now shows the combo's own fill (marked
+with a `COMBO` tag) above its hedge legs, so it's visually unambiguous: the combo row
+always reads `buy/yes` (or `sell/yes`), while the hedge legs below it are the ones that
+short via `buy/no` — that's the delta hedge, not a NO purchase on the combo. The **Recent
+fills** table also now shows a `type` column (`combo`/`leg`) for the same reason.
+
 ### Trade states (shown as badges)
 
 - **open** — executed (combo YES bought + hedge legs), awaiting *all* legs to *finalize* on Kalshi.

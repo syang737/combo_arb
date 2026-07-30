@@ -142,14 +142,18 @@ def top_near_misses(path: str, limit: int = 20) -> list[dict]:
 
 
 def recent_fills(path: str, limit: int = 20) -> list[dict]:
-    """Most recent (paper) fills."""
+    """Most recent fills, with instrument_type (combo/leg) joined from orders so a
+    combo fill can't be mistaken for a leg fill (or vice versa) in the UI."""
     conn = _connect_ro(path)
     if conn is None:
         return [_missing(path)]
     try:
         rows = _rows(conn,
-            "SELECT ts, order_id, instrument, side, action, price, qty, fee FROM fills "
-            "ORDER BY ts DESC LIMIT ?", (limit,))
+            "SELECT f.ts AS ts, f.order_id AS order_id, f.instrument AS instrument, "
+            "f.side AS side, f.action AS action, f.price AS price, f.qty AS qty, "
+            "f.fee AS fee, o.instrument_type AS instrument_type "
+            "FROM fills f LEFT JOIN orders o ON o.order_id = f.order_id "
+            "ORDER BY f.ts DESC LIMIT ?", (limit,))
         for r in rows:
             r["ts_iso"] = _iso(r["ts"])
         return rows

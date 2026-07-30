@@ -96,12 +96,18 @@ class DeltaHedgeModel:
         self, signal: ArbSignal, qty: int, leg_prices: dict[str, LegPrice], cfg: AppConfig
     ) -> tuple[Order, list[Order]]:
         sell_combo = cfg.strategy.direction == "sell_overpriced"
+        # INVARIANT: a combo's own order side is always YES -- Kalshi only exposes a
+        # directly tradeable YES side for these combo markets (see module docstring);
+        # we never assume the NO side is quotable/tradeable. Direction only changes the
+        # ACTION (buy vs sell), never the side. This must hold even in paper mode, since
+        # paper is meant to emulate what a real order would actually be.
+        combo_side = Side.YES
         combo_order = Order(
             # The tradeable combo market (live); fall back to the collection ticker
             # for the offline mock, which has no market_ticker.
             instrument=signal.market_ticker or signal.mve_collection_ticker,
             instrument_type=InstrumentType.COMBO,
-            side=Side.YES,
+            side=combo_side,
             action="sell" if sell_combo else "buy",
             price=signal.combo_quote_yes,
             qty=qty,
@@ -109,6 +115,11 @@ class DeltaHedgeModel:
             signal_ref=signal.rfq_id,
             status=OrderStatus.NEW,
         )
+        if combo_order.side != Side.YES:  # pragma: no cover - defensive, cannot happen above
+            raise ValueError(
+                f"refusing to build a combo order with side={combo_order.side!r}: "
+                "combos are only tradeable on the YES side"
+            )
 
         deltas = leg_deltas(signal, leg_prices, cfg)
         hedge_orders: list[Order] = []

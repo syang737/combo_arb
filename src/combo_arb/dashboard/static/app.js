@@ -114,9 +114,11 @@ function resBadge(r) {
   return "";
 }
 
-function legRow(l) {
-  return `<div class="leg">
-    <span class="leg-name">${namedCell(l.instrument)}</span>
+function legRow(l, opts = {}) {
+  const cls = opts.combo ? "leg combo-fill" : "leg";
+  const tag = opts.combo ? `<span class="tag">COMBO</span>` : "";
+  return `<div class="${cls}">
+    <span class="leg-name">${tag}${namedCell(l.instrument)}</span>
     <span class="leg-dir">${l.action}/${l.side}</span>
     <span class="leg-num">${l.qty} @ ${num(l.price, 3)}</span>
     <span class="leg-res">${resBadge(l.resolved_yes)}</span>
@@ -139,7 +141,12 @@ function tradeCard(t) {
   // On settled cards, show the trade-time estimate next to the realized number.
   const est = (closed && t.expected_pnl !== null && t.expected_pnl !== undefined)
     ? `<span class="muted">est ${money(t.expected_pnl)}</span>` : "";
-  const legs = (t.legs || []).map(legRow).join("") || `<div class="leg muted">no leg fills recorded</div>`;
+  // The combo's own fill (side is always YES -- combos are only ever bought/sold YES,
+  // never NO; hedge legs below are the ones that go short via buy/no).
+  const comboRow = t.combo
+    ? legRow({ ...t.combo, resolved_yes: t.combo_resolved_yes }, { combo: true })
+    : `<div class="leg combo-fill muted">no combo fill recorded</div>`;
+  const legs = (t.legs || []).map((l) => legRow(l)).join("") || `<div class="leg muted">no leg fills recorded</div>`;
   return `<div class="trade-card">
     <div class="trade-head">
       <div class="trade-title">${namedCell(comboTicker)} ${statusBadge(t.status)} ${comboOutcome(t)}</div>
@@ -149,7 +156,7 @@ function tradeCard(t) {
         <span class="muted">${when}</span>
       </div>
     </div>
-    <div class="trade-legs">${legs}</div>
+    <div class="trade-legs">${comboRow}${legs}</div>
   </div>`;
 }
 
@@ -246,6 +253,7 @@ async function refreshTables() {
   renderTable($("fills-tbl"), fills, [
     { key: "ts_iso", label: "time", fmt: fmtTime },
     { key: "instrument", label: "instrument", fmt: (v) => namedCell(v) },
+    { key: "instrument_type", label: "type" },
     { key: "side", label: "side" },
     { key: "action", label: "act" },
     { key: "price", label: "price", num: true, fmt: (v) => num(v, 3) },

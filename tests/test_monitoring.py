@@ -113,6 +113,27 @@ def test_open_trades_summary(tmp_path):
     assert len(s["recent_settlements"]) == 2
 
 
+def test_recent_fills_includes_instrument_type(tmp_path):
+    """Fills join to their order for instrument_type, so a combo fill (always side=yes)
+    can't be confused with a leg fill (side may be no) in the dashboard."""
+    path = str(tmp_path / "rf.db")
+    db = Database(path)
+    db.insert_order(Order(instrument="C", instrument_type=InstrumentType.COMBO, side=Side.YES,
+                          action="buy", price=0.1, qty=3, signal_ref="t1", order_id="oc"))
+    db.insert_order(Order(instrument="A", instrument_type=InstrumentType.LEG, side=Side.NO,
+                          action="buy", price=0.5, qty=1, signal_ref="t1", order_id="oa"))
+    db.insert_fill(Fill(order_id="oc", instrument="C", instrument_type=InstrumentType.COMBO,
+                        side=Side.YES, action="buy", price=0.1, qty=3, fee=0.0))
+    db.insert_fill(Fill(order_id="oa", instrument="A", side=Side.NO,
+                        action="buy", price=0.5, qty=1, fee=0.0))
+    db.commit()
+    db.close()
+
+    rows = {r["instrument"]: r for r in queries.recent_fills(path)}
+    assert rows["C"]["instrument_type"] == "combo" and rows["C"]["side"] == "yes"
+    assert rows["A"]["instrument_type"] == "leg" and rows["A"]["side"] == "no"
+
+
 def test_market_names_map(tmp_path):
     path = str(tmp_path / "names.db")
     db = Database(path)
