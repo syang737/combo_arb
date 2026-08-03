@@ -58,6 +58,10 @@ CREATE TABLE IF NOT EXISTS combo_evaluations (
     arbitrage_margin REAL, gap_to_flag REAL, flagged INTEGER
 );
 CREATE INDEX IF NOT EXISTS ix_eval_ts ON combo_evaluations(ts);
+-- Serves monitoring.queries.top_near_misses (WHERE flagged=0 ORDER BY gap_to_flag DESC):
+-- without this, that query is a full scan + sort of this table, which grows every scan
+-- cycle forever and is typically the largest table in the DB.
+CREATE INDEX IF NOT EXISTS ix_eval_flagged_gap ON combo_evaluations(flagged, gap_to_flag DESC);
 
 CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,6 +70,11 @@ CREATE TABLE IF NOT EXISTS orders (
     price REAL, qty INTEGER, status TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_ord_ts ON orders(ts);
+-- Serves monitoring.queries.trades_grouped's per-trade fills join (WHERE o.signal_ref=?)
+-- and recent_fills' fills->orders join (ON o.order_id=f.order_id); without these, both
+-- are a full table scan of orders per lookup.
+CREATE INDEX IF NOT EXISTS ix_ord_signal_ref ON orders(signal_ref);
+CREATE INDEX IF NOT EXISTS ix_ord_order_id ON orders(order_id);
 
 CREATE TABLE IF NOT EXISTS fills (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,6 +82,8 @@ CREATE TABLE IF NOT EXISTS fills (
     price REAL, qty INTEGER, fee REAL
 );
 CREATE INDEX IF NOT EXISTS ix_fill_ts ON fills(ts);
+-- Serves the fills side of the same order_id joins above.
+CREATE INDEX IF NOT EXISTS ix_fill_order_id ON fills(order_id);
 
 CREATE TABLE IF NOT EXISTS positions (
     instrument TEXT PRIMARY KEY,
@@ -103,6 +114,9 @@ CREATE TABLE IF NOT EXISTS open_trades (
     outcomes_json TEXT                     -- {leg_ticker: true|false} actual resolutions
 );
 CREATE INDEX IF NOT EXISTS ix_open_trades_status ON open_trades(status);
+-- Serves trades_grouped's history-window filter (WHERE status='settled'/'expired' AND
+-- settled_ts >= ?) and its ORDER BY settled_ts DESC.
+CREATE INDEX IF NOT EXISTS ix_open_trades_settled_ts ON open_trades(settled_ts);
 
 CREATE TABLE IF NOT EXISTS market_names (
     ticker TEXT PRIMARY KEY,               -- combo or leg market ticker
