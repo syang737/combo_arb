@@ -16,16 +16,22 @@ This script confirms which of those fields genuinely exist before any code depen
 on them, and whether Kalshi exposes an explicit mutual-exclusivity flag. Every call
 is a GET — it creates nothing and trades nothing.
 
-Run from the repo root:  python scripts/probe_event_structure.py
+Run from the repo root:  python scripts/probe_event_structure.py [--config path/to/config.yaml]
+
+Config resolution mirrors the CLI (``cli.py::_load_cfg``): explicit --config, then
+$COMBO_ARB_CONFIG (what the Docker image sets), then the bundled example, else
+built-in defaults -- so this probes the SAME universe the engine is actually
+trading, not just the example config.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 from collections import defaultdict
 from typing import Any, Optional
 
-from combo_arb.config import AppConfig
+from combo_arb.cli import _load_cfg
 from combo_arb.kalshi.client import KalshiClient
 
 # The fields that would let us reason about implication / exclusivity structurally.
@@ -68,7 +74,11 @@ def _report_fields(label: str, obj: dict, fields: tuple[str, ...]) -> None:
 
 
 def main() -> None:
-    cfg = AppConfig.load("config/config.example.yaml")
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--config", default=None, help="Path to config YAML (see resolution above)")
+    args = ap.parse_args()
+
+    cfg = _load_cfg(args.config)
     client = KalshiClient(cfg)
 
     print("Discovering combos via the engine's own configured source "

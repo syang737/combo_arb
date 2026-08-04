@@ -24,7 +24,11 @@ edge NET of real fees, so we find out whether the trade exists here at all.
 exhaustive can leave every leg resolving NO, which loses the entire stake — so
 "probably MECE" is treated as untradeable by design.
 
-Every call is a GET. Run:  python scripts/scan_mece_candidates.py [--qty 100]
+Every call is a GET. Run:  python scripts/scan_mece_candidates.py [--qty 100] [--config path]
+
+Config resolution mirrors the CLI (``cli.py::_load_cfg``): explicit --config, then
+$COMBO_ARB_CONFIG (what the Docker image sets), then the bundled example, else
+built-in defaults -- so this scans the SAME universe the engine is actually trading.
 """
 
 from __future__ import annotations
@@ -34,6 +38,7 @@ import math
 from collections import defaultdict
 from typing import Any, Optional
 
+from combo_arb.cli import _load_cfg
 from combo_arb.config import AppConfig
 from combo_arb.kalshi.client import KalshiClient, _price_field
 from combo_arb.models import LegPrice
@@ -150,9 +155,10 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=100, help="Page size for listings")
     ap.add_argument("--max-pages", type=int, default=5)
     ap.add_argument("--top", type=int, default=25, help="Rows to print")
+    ap.add_argument("--config", default=None, help="Path to config YAML (see resolution above)")
     args = ap.parse_args()
 
-    cfg = AppConfig.load("config/config.example.yaml")
+    cfg = _load_cfg(args.config)
     client = KalshiClient(cfg)
     print(f"Scanning events for MECE baskets (qty={args.qty} for fee amortisation)...\n")
 
